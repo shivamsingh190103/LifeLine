@@ -1,6 +1,11 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+const readEnv = key => {
+  const value = process.env[key];
+  return typeof value === 'string' ? value.trim() : value;
+};
+
 const parseIntEnv = (value, fallback) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -55,33 +60,34 @@ const normalizeExecuteResult = result => {
 };
 
 const buildDbConfig = () => {
-  const useConnectionString = Boolean(process.env.DATABASE_URL);
+  const databaseUrl = readEnv('DATABASE_URL');
+  const useConnectionString = Boolean(databaseUrl);
   const shouldUseSsl =
-    envFlagEnabled(process.env.DATABASE_SSL) ||
+    envFlagEnabled(readEnv('DATABASE_SSL')) ||
     (useConnectionString &&
-      !process.env.DATABASE_URL.includes('localhost') &&
-      !process.env.DATABASE_URL.includes('127.0.0.1'));
+      !databaseUrl.includes('localhost') &&
+      !databaseUrl.includes('127.0.0.1'));
 
   if (useConnectionString) {
     return {
-      connectionString: process.env.DATABASE_URL,
+      connectionString: databaseUrl,
       ssl: shouldUseSsl ? { rejectUnauthorized: false } : false,
-      max: parseIntEnv(process.env.DB_CONNECTION_LIMIT, 10),
-      connectionTimeoutMillis: parseIntEnv(process.env.DB_CONNECT_TIMEOUT_MS, 10000),
-      idleTimeoutMillis: parseIntEnv(process.env.DB_IDLE_TIMEOUT_MS, 30000)
+      max: parseIntEnv(readEnv('DB_CONNECTION_LIMIT'), 10),
+      connectionTimeoutMillis: parseIntEnv(readEnv('DB_CONNECT_TIMEOUT_MS'), 10000),
+      idleTimeoutMillis: parseIntEnv(readEnv('DB_IDLE_TIMEOUT_MS'), 30000)
     };
   }
 
   return {
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'bloodbank_db',
-    port: parseIntEnv(process.env.DB_PORT, 5432),
+    host: readEnv('DB_HOST') || 'localhost',
+    user: readEnv('DB_USER') || 'postgres',
+    password: readEnv('DB_PASSWORD') || '',
+    database: readEnv('DB_NAME') || 'bloodbank_db',
+    port: parseIntEnv(readEnv('DB_PORT'), 5432),
     ssl: shouldUseSsl ? { rejectUnauthorized: false } : false,
-    max: parseIntEnv(process.env.DB_CONNECTION_LIMIT, 10),
-    connectionTimeoutMillis: parseIntEnv(process.env.DB_CONNECT_TIMEOUT_MS, 10000),
-    idleTimeoutMillis: parseIntEnv(process.env.DB_IDLE_TIMEOUT_MS, 30000)
+    max: parseIntEnv(readEnv('DB_CONNECTION_LIMIT'), 10),
+    connectionTimeoutMillis: parseIntEnv(readEnv('DB_CONNECT_TIMEOUT_MS'), 10000),
+    idleTimeoutMillis: parseIntEnv(readEnv('DB_IDLE_TIMEOUT_MS'), 30000)
   };
 };
 

@@ -33,16 +33,21 @@ const parseBooleanEnv = value => {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 };
 
+const getEnvString = key => {
+  const value = process.env[key];
+  return typeof value === 'string' ? value.trim() : '';
+};
+
 const isMailConfigured = () => (
-  Boolean(process.env.SMTP_HOST) &&
-  Boolean(process.env.SMTP_USER) &&
-  Boolean(process.env.SMTP_PASS) &&
-  Boolean(process.env.SMTP_FROM)
+  Boolean(getEnvString('SMTP_HOST')) &&
+  Boolean(getEnvString('SMTP_USER')) &&
+  Boolean(getEnvString('SMTP_PASS')) &&
+  Boolean(getEnvString('SMTP_FROM'))
 );
 
 const contactReceiverEmail = () => (
-  normalizeString(process.env.CONTACT_RECEIVER_EMAIL) ||
-  normalizeString(process.env.SMTP_USER)
+  normalizeString(getEnvString('CONTACT_RECEIVER_EMAIL')) ||
+  normalizeString(getEnvString('SMTP_USER'))
 );
 
 const escapeHtml = value => String(value ?? '')
@@ -63,17 +68,17 @@ const getMailTransporter = () => {
     return emailTransporter;
   }
 
-  const parsedPort = Number.parseInt(process.env.SMTP_PORT, 10);
+  const parsedPort = Number.parseInt(getEnvString('SMTP_PORT'), 10);
   const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 587;
-  const secure = parseBooleanEnv(process.env.SMTP_SECURE) || port === 465;
+  const secure = parseBooleanEnv(getEnvString('SMTP_SECURE')) || port === 465;
 
   emailTransporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+    host: getEnvString('SMTP_HOST'),
     port,
     secure,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
+      user: getEnvString('SMTP_USER'),
+      pass: getEnvString('SMTP_PASS')
     }
   });
 
@@ -94,7 +99,7 @@ const sendContactNotification = async ({ name, email, phone, message, messageId 
   const submittedAt = new Date().toISOString();
 
   await transporter.sendMail({
-    from: process.env.SMTP_FROM,
+    from: getEnvString('SMTP_FROM'),
     to: receiver,
     replyTo: email,
     subject: `New LifeLine contact message from ${name}`,

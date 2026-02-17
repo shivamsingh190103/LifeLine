@@ -28,6 +28,11 @@ const parsePositiveInt = (value, fallback = null) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const getEnvString = key => {
+  const value = process.env[key];
+  return typeof value === 'string' ? value.trim() : '';
+};
+
 const parseBooleanEnv = value => {
   if (value === undefined || value === null) {
     return false;
@@ -61,7 +66,7 @@ const normalizePhoneDigitsUpdate = value => {
 const isValidPhone = value => value === null || PHONE_REGEX.test(value);
 
 const getDisposableDomains = () => {
-  const configuredDomains = (process.env.DISPOSABLE_EMAIL_DOMAINS || '')
+  const configuredDomains = getEnvString('DISPOSABLE_EMAIL_DOMAINS')
     .split(',')
     .map(domain => domain.trim().toLowerCase())
     .filter(Boolean);
@@ -101,7 +106,7 @@ const getRequestBaseUrl = req => {
 };
 
 const getAppBaseUrl = req => {
-  const configuredBaseUrl = (process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+  const configuredBaseUrl = getEnvString('APP_BASE_URL').replace(/\/+$/, '');
   const requestBaseUrl = getRequestBaseUrl(req).replace(/\/+$/, '');
 
   if (!configuredBaseUrl) {
@@ -135,10 +140,10 @@ const getAppBaseUrl = req => {
 let emailTransporter = null;
 
 const isMailConfigured = () => (
-  Boolean(process.env.SMTP_HOST) &&
-  Boolean(process.env.SMTP_USER) &&
-  Boolean(process.env.SMTP_PASS) &&
-  Boolean(process.env.SMTP_FROM)
+  Boolean(getEnvString('SMTP_HOST')) &&
+  Boolean(getEnvString('SMTP_USER')) &&
+  Boolean(getEnvString('SMTP_PASS')) &&
+  Boolean(getEnvString('SMTP_FROM'))
 );
 
 const getMailTransporter = () => {
@@ -150,17 +155,17 @@ const getMailTransporter = () => {
     return emailTransporter;
   }
 
-  const smtpPort = Number.parseInt(process.env.SMTP_PORT, 10);
+  const smtpPort = Number.parseInt(getEnvString('SMTP_PORT'), 10);
   const port = Number.isInteger(smtpPort) && smtpPort > 0 ? smtpPort : 587;
-  const secure = parseBooleanEnv(process.env.SMTP_SECURE) || port === 465;
+  const secure = parseBooleanEnv(getEnvString('SMTP_SECURE')) || port === 465;
 
   emailTransporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+    host: getEnvString('SMTP_HOST'),
     port,
     secure,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
+      user: getEnvString('SMTP_USER'),
+      pass: getEnvString('SMTP_PASS')
     }
   });
 
@@ -174,7 +179,7 @@ const sendPasswordResetEmail = async ({ to, name, resetLink }) => {
   }
 
   await transporter.sendMail({
-    from: process.env.SMTP_FROM,
+    from: getEnvString('SMTP_FROM'),
     to,
     subject: 'BloodBank password reset',
     text: `Hi ${name || 'there'},\n\nUse this link to reset your password:\n${resetLink}\n\nThis link expires soon. If you did not request this, ignore this email.`,
@@ -194,7 +199,7 @@ const sendEmailVerificationEmail = async ({ to, name, verifyLink }) => {
   }
 
   await transporter.sendMail({
-    from: process.env.SMTP_FROM,
+    from: getEnvString('SMTP_FROM'),
     to,
     subject: 'Verify your BloodBank email',
     text: `Hi ${name || 'there'},\n\nPlease verify your email by opening this link:\n${verifyLink}\n\nIf you did not create this account, you can ignore this email.`,
