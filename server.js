@@ -64,20 +64,26 @@ const initializeDatabase = async () => {
 
 app.locals.dbInitPromise = initializeDatabase();
 
+const ensureDatabaseConnection = async ({ forceRetry = false } = {}) => {
+  await app.locals.dbInitPromise;
+
+  if (!app.locals.dbConnected) {
+    const now = Date.now();
+    if (forceRetry || now - app.locals.lastDbRetry >= DB_RETRY_INTERVAL_MS) {
+      app.locals.lastDbRetry = now;
+      app.locals.dbInitPromise = initializeDatabase();
+      await app.locals.dbInitPromise;
+    }
+  }
+
+  return app.locals.dbConnected;
+};
+
 const requireDatabase = async (req, res, next) => {
   try {
-    await app.locals.dbInitPromise;
+    const connected = await ensureDatabaseConnection();
 
-    if (!app.locals.dbConnected) {
-      const now = Date.now();
-      if (now - app.locals.lastDbRetry >= DB_RETRY_INTERVAL_MS) {
-        app.locals.lastDbRetry = now;
-        app.locals.dbInitPromise = initializeDatabase();
-        await app.locals.dbInitPromise;
-      }
-    }
-
-    if (app.locals.dbConnected) {
+    if (connected) {
       return next();
     }
 
@@ -91,13 +97,19 @@ const requireDatabase = async (req, res, next) => {
 };
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'BloodBank API is running',
-    database: app.locals.dbConnected ? 'connected' : 'disconnected',
-    timestamp: new Date().toISOString()
-  });
+app.get('/api/health', async (req, res, next) => {
+  try {
+    const connected = await ensureDatabaseConnection({ forceRetry: true });
+
+    return res.json({
+      success: true,
+      message: 'BloodBank API is running',
+      database: connected ? 'connected' : 'disconnected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 // API documentation endpoint
