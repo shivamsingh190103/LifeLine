@@ -125,7 +125,8 @@ router.post('/create', async (req, res) => {
       `INSERT INTO blood_requests 
        (requester_id, patient_name, blood_group, units_required, hospital_name, 
         hospital_address, urgency_level, contact_person, contact_phone, reason, required_date) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`,
       [
         normalizedRequesterId,
         normalizedPatientName,
@@ -161,7 +162,7 @@ router.post('/create', async (req, res) => {
           }
         }
       } catch (error) {
-        if (error.code !== 'ER_BAD_FIELD_ERROR') {
+        if (error.code !== 'ER_BAD_FIELD_ERROR' && error.code !== '42703') {
           throw error;
         }
       }

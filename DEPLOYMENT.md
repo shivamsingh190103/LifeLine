@@ -1,205 +1,103 @@
-# 🚀 BloodBank Deployment Guide
+# BloodBank Deployment Guide (Vercel + Supabase)
 
-## Deploying to Vercel
+## Prerequisites
 
-This guide will help you deploy your BloodBank application to Vercel with a cloud MySQL database.
+- GitHub repository with this project
+- Supabase project (PostgreSQL)
+- Vercel account
 
-## 📋 Prerequisites
+## Step 1: Prepare Supabase
 
-1. **Vercel Account**: Sign up at [vercel.com](https://vercel.com)
-2. **Cloud Database**: You'll need a cloud MySQL database (PlanetScale, Railway, or similar)
-3. **Vercel CLI**: Install with `npm i -g vercel`
+1. Create a project in [Supabase](https://supabase.com).
+2. Open `Project Settings -> Database -> Connection string`.
+3. Copy your PostgreSQL URI (pooler URI recommended for deployment).
+4. Save this URI for Vercel `DATABASE_URL`.
 
-## 🗄️ Database Setup
+## Step 2: Ensure Schema Exists
 
-### Option 1: PlanetScale (Recommended)
-1. Go to [planetscale.com](https://planetscale.com)
-2. Create a free account
-3. Create a new database
-4. Get your connection details
+Use one of these methods:
 
-### Option 2: Railway
-1. Go to [railway.app](https://railway.app)
-2. Create a new project
-3. Add MySQL service
-4. Get your connection details
+- Method A (from local machine):
+  1. Set `.env` with your Supabase `DATABASE_URL` and `DATABASE_SSL=true`
+  2. Run: `npm install`
+  3. Run: `npm run setup`
 
-### Option 3: Clever Cloud
-1. Go to [clever-cloud.com](https://clever-cloud.com)
-2. Create a MySQL database
-3. Get your connection details
+- Method B (Supabase SQL Editor):
+  1. Open SQL Editor in Supabase
+  2. Copy content of `database/schema.sql`
+  3. Run it
 
-## 🔧 Environment Variables
-
-Set these environment variables in your Vercel project:
+## Step 3: Push Code to GitHub
 
 ```bash
-DB_HOST=your-database-host
-DB_USER=your-database-user
-DB_PASSWORD=your-database-password
-DB_NAME=your-database-name
-DB_PORT=3306
-NODE_ENV=production
+git add .
+git commit -m "Supabase-ready deployment setup"
+git push origin main
 ```
 
-## 🚀 Deployment Steps
+## Step 4: Import Project in Vercel
 
-### 1. Prepare Your Database
+1. Go to Vercel dashboard
+2. Click `Add New Project`
+3. Import this GitHub repository
+4. Keep framework preset as `Other`
+5. Deploy once
+
+## Step 5: Configure Environment Variables in Vercel
+
+In `Project -> Settings -> Environment Variables`, add:
+
+- `DATABASE_URL` = Supabase PostgreSQL URI
+- `DATABASE_SSL` = `true`
+- `NODE_ENV` = `production`
+- `CORS_ORIGIN` = `https://<your-vercel-domain>` (recommended)
+- `APP_BASE_URL` = `https://<your-vercel-domain>`
+- `EMAIL_VERIFICATION_TOKEN_TTL_HOURS` = `24` (optional)
+
+For forgot-password, email-verification, and contact-form emails, also add SMTP variables:
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
+- `CONTACT_RECEIVER_EMAIL` (where contact form messages should be delivered)
+
+Then redeploy.
+
+## Step 6: Verify Deployment
+
+1. Open `https://<your-vercel-domain>/api/health`
+2. Confirm it returns:
+   - `success: true`
+   - `database: "connected"`
+3. Test user registration and login pages
+4. Test dashboard API calls
+
+## Common Failures and Fixes
+
+- `Database is currently unavailable`
+  - Wrong `DATABASE_URL`
+  - `DATABASE_SSL` missing/false
+  - Schema not created
+
+- Static UI broken (CSS missing)
+  - Confirm `vercel.json` is committed
+  - Redeploy after pushing all assets
+
+- API errors after deploy
+  - Check Vercel logs
+  - Check Supabase logs
+
+## Useful Commands
+
 ```bash
-# Run the database setup script locally first
+# Local run
+npm run dev
+
+# Production-like local run
+npm start
+
+# Re-apply DB schema
 npm run setup
 ```
-
-### 2. Deploy to Vercel
-```bash
-# Login to Vercel
-vercel login
-
-# Deploy your project
-vercel
-
-# Follow the prompts:
-# - Set up and deploy: Yes
-# - Which scope: Select your account
-# - Link to existing project: No
-# - Project name: bloodbank-app
-# - Directory: ./
-```
-
-### 3. Set Environment Variables
-```bash
-# Set database environment variables
-vercel env add DB_HOST
-vercel env add DB_USER
-vercel env add DB_PASSWORD
-vercel env add DB_NAME
-vercel env add DB_PORT
-vercel env add NODE_ENV
-```
-
-### 4. Redeploy with Environment Variables
-```bash
-vercel --prod
-```
-
-## 🌐 Alternative: Deploy Frontend Only
-
-If you want to deploy just the frontend and use a separate backend:
-
-### 1. Create Frontend Build
-```bash
-# Create a build directory
-mkdir build
-cp *.html build/
-cp *.css build/
-cp *.js build/
-cp -r Images build/
-```
-
-### 2. Update vercel.json for Frontend
-```json
-{
-  "version": 2,
-  "builds": [
-    {
-      "src": "build/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/build/$1"
-    }
-  ]
-}
-```
-
-## 🔗 Database Connection Examples
-
-### PlanetScale
-```bash
-DB_HOST=aws.connect.psdb.cloud
-DB_USER=your-username
-DB_PASSWORD=your-password
-DB_NAME=bloodbank_db
-DB_PORT=3306
-```
-
-### Railway
-```bash
-DB_HOST=containers-us-west-XX.railway.app
-DB_USER=root
-DB_PASSWORD=your-password
-DB_NAME=railway
-DB_PORT=3306
-```
-
-## 🛠️ Troubleshooting
-
-### Common Issues:
-
-1. **Database Connection Failed**
-   - Check environment variables
-   - Ensure database is accessible from Vercel
-   - Verify database credentials
-
-2. **Build Errors**
-   - Check package.json dependencies
-   - Ensure all files are committed
-   - Verify Node.js version compatibility
-
-3. **API Routes Not Working**
-   - Check vercel.json routing
-   - Verify server.js is the main file
-   - Check environment variables
-
-### Debug Commands:
-```bash
-# Check Vercel logs
-vercel logs
-
-# Check environment variables
-vercel env ls
-
-# Redeploy with debug info
-vercel --debug
-```
-
-## 📱 Post-Deployment
-
-After successful deployment:
-
-1. **Test the Application**
-   - Visit your Vercel URL
-   - Test registration and login
-   - Verify all features work
-
-2. **Set Up Custom Domain** (Optional)
-   - Go to Vercel dashboard
-   - Add custom domain
-   - Configure DNS settings
-
-3. **Monitor Performance**
-   - Check Vercel analytics
-   - Monitor database performance
-   - Set up error tracking
-
-## 🔒 Security Considerations
-
-1. **Environment Variables**: Never commit sensitive data
-2. **Database Security**: Use strong passwords
-3. **CORS**: Configure properly for production
-4. **HTTPS**: Vercel provides automatic SSL
-
-## 📞 Support
-
-If you encounter issues:
-1. Check Vercel documentation
-2. Review deployment logs
-3. Verify database connectivity
-4. Test locally first
-
----
-
-**Happy Deploying! 🚀**

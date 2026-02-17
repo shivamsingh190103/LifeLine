@@ -1,4 +1,4 @@
-const mysql = require('mysql2');
+const { Client } = require('pg');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
@@ -8,113 +8,104 @@ const parseIntEnv = (value, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-// Database configuration
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  port: parseIntEnv(process.env.DB_PORT, 3306),
-  charset: 'utf8mb4'
+const envFlagEnabled = value => {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === '1' ||
+    normalized === 'true' ||
+    normalized === 'yes' ||
+    normalized === 'on' ||
+    normalized === 'require';
 };
 
-async function setupDatabase() {
-  console.log('🚀 Setting up BloodBank Database...\n');
+const getDbConfig = () => {
+  const useConnectionString = Boolean(process.env.DATABASE_URL);
+  const shouldUseSsl =
+    envFlagEnabled(process.env.DATABASE_SSL) ||
+    (useConnectionString &&
+      !process.env.DATABASE_URL.includes('localhost') &&
+      !process.env.DATABASE_URL.includes('127.0.0.1'));
 
-  let connection;
+  if (useConnectionString) {
+    return {
+      connectionString: process.env.DATABASE_URL,
+      ssl: shouldUseSsl ? { rejectUnauthorized: false } : false
+    };
+  }
+
+  return {
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'bloodbank_db',
+    port: parseIntEnv(process.env.DB_PORT, 5432),
+    ssl: shouldUseSsl ? { rejectUnauthorized: false } : false
+  };
+};
+
+const dbConfig = getDbConfig();
+
+async function setupDatabase() {
+  console.log('🚀 Setting up BloodBank PostgreSQL Schema...\n');
+
+  const client = new Client(dbConfig);
   try {
-    // Create connection without database
-    connection = mysql.createConnection(dbConfig);
-    
-    // Read schema file
+    await client.connect();
+
     const schemaPath = path.join(__dirname, 'database', 'schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf8');
 
-    console.log('📖 Reading database schema...');
-    
-    // Split schema into individual statements
-    const statements = schema
-      .split(';')
-      .map(statement =>
-        statement
-          .split('\n')
-          .filter(line => !line.trim().startsWith('--'))
-          .join('\n')
-          .trim()
-      )
-      .filter(Boolean);
+    console.log('📖 Applying schema from database/schema.sql...');
+    await client.query(schema);
 
-    console.log('🗄️  Creating database and tables...');
-    
-    // Execute each statement separately
-    for (let i = 0; i < statements.length; i++) {
-      const statement = statements[i];
-      if (statement.trim()) {
-        try {
-          await connection.promise().query(statement);
-          console.log(`   ✅ Executed statement ${i + 1}/${statements.length}`);
-        } catch (error) {
-          console.log(`   ⚠️  Statement ${i + 1} failed (this might be expected): ${error.message}`);
-        }
-      }
-    }
-    
     console.log('✅ Database setup completed successfully!');
-    console.log('\n📋 Database Details:');
-    console.log('   - Database Name: bloodbank_db');
-    console.log(`   - Host: ${dbConfig.host}`);
-    console.log(`   - User: ${dbConfig.user}`);
-    console.log(`   - Port: ${dbConfig.port}`);
-    
     console.log('\n🎉 Setup completed! You can now start the application:');
     console.log('   npm start');
-    
   } catch (error) {
     console.error('❌ Database setup failed:', error.message);
     console.log('\n🔧 Troubleshooting:');
-    console.log('   1. Make sure MySQL is running');
-    console.log('   2. Verify your MySQL credentials in .env (DB_HOST, DB_USER, DB_PASSWORD, DB_PORT)');
-    console.log('   3. Ensure you have permission to create databases');
-    console.log('   4. Try running the schema manually: mysql -u root -p < database/schema.sql');
+    console.log('   1. Make sure your Supabase/PostgreSQL database is reachable');
+    console.log('   2. Verify DATABASE_URL or DB_* credentials in .env');
+    console.log('   3. Ensure the DB user has schema/table creation permissions');
   } finally {
-    if (connection) {
-      connection.end();
-    }
+    await client.end().catch(() => {});
   }
 }
 
-// Check if MySQL is running
-async function checkMySQLConnection() {
+async function checkPostgresConnection() {
+  const client = new Client(dbConfig);
   try {
-    const connection = mysql.createConnection(dbConfig);
-    await connection.promise().query('SELECT 1');
-    connection.end();
+    await client.connect();
+    await client.query('SELECT 1');
     return true;
   } catch (error) {
     return false;
+  } finally {
+    await client.end().catch(() => {});
   }
 }
 
-// Main setup function
 async function main() {
   console.log('🏥 BloodBank Full-Stack Application Setup\n');
-  
-  const isMySQLRunning = await checkMySQLConnection();
-  
-  if (!isMySQLRunning) {
-    console.log('❌ Cannot connect to MySQL. Please ensure:');
-    console.log('   1. MySQL server is running');
-    console.log('   2. Credentials in .env are correct');
-    console.log(`   3. MySQL is accessible on ${dbConfig.host}:${dbConfig.port}`);
+
+  const connected = await checkPostgresConnection();
+  if (!connected) {
+    console.log('❌ Cannot connect to PostgreSQL/Supabase. Please ensure:');
+    console.log('   1. DATABASE_URL or DB_* credentials in .env are correct');
+    console.log('   2. Your network allows outbound DB connection');
+    console.log('   3. SSL settings are correct for your provider');
     process.exit(1);
   }
-  
-  console.log('✅ MySQL connection successful');
+
+  console.log('✅ PostgreSQL connection successful');
   await setupDatabase();
 }
 
-// Run setup
 if (require.main === module) {
   main().catch(console.error);
 }
 
-module.exports = { setupDatabase, checkMySQLConnection };
+module.exports = { setupDatabase, checkPostgresConnection };

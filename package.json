@@ -1,29 +1,35 @@
 {
   "name": "bloodbank-fullstack",
   "version": "1.0.0",
-  "description": "A full-stack BloodBank application with MySQL database",
+  "description": "A full-stack BloodBank application with PostgreSQL/Supabase backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
     "setup": "node setup.js",
     "vercel-build": "echo 'Build completed'",
-    "lint:syntax": "node --check server.js && node --check config/database.js && node --check services/geo.js && node --check services/cache.js && node --check services/donorMatcher.js && node --check services/alertStream.js && node --check routes/auth.js && node --check routes/bloodRequests.js && node --check routes/donations.js && node --check routes/contact.js && node --check routes/inventory.js && node --check routes/matching.js && node --check routes/alerts.js && node --check Register.js && node --check login.js && node --check dashboard.js && node --check help.js && node --check setup.js",
+    "lint:syntax": "node --check server.js && node --check config/database.js && node --check services/geo.js && node --check services/cache.js && node --check services/donorMatcher.js && node --check services/alertStream.js && node --check routes/auth.js && node --check routes/bloodRequests.js && node --check routes/donations.js && node --check routes/contact.js && node --check routes/inventory.js && node --check routes/matching.js && node --check routes/alerts.js && node --check routes/feedback.js && node --check Register.js && node --check login.js && node --check dashboard.js && node --check help.js && node --check forgot-password.js && node --check reset-password.js && node --check index.js && node --check setup.js",
     "test": "npm run lint:syntax"
   },
-  "keywords": ["bloodbank", "donation", "fullstack", "mysql"],
+  "keywords": [
+    "bloodbank",
+    "donation",
+    "fullstack",
+    "postgresql",
+    "supabase"
+  ],
   "author": "Shivam Singh",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
-    "mysql2": "^3.6.5",
     "bcryptjs": "^2.4.3",
+    "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "express": "^4.18.2",
     "express-session": "^1.17.3",
-    "body-parser": "^1.20.2",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^6.9.7"
+    "nodemailer": "^6.9.7",
+    "pg": "^8.18.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

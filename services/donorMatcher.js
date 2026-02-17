@@ -41,7 +41,7 @@ const findNearbyDonors = async ({
        AND blood_group = ?
        AND latitude IS NOT NULL
        AND longitude IS NOT NULL
-       AND (last_donation_date IS NULL OR last_donation_date <= DATE_SUB(CURDATE(), INTERVAL 90 DAY))`,
+       AND (last_donation_date IS NULL OR last_donation_date <= (CURRENT_DATE - INTERVAL '90 days'))`,
     [normalizedBloodGroup]
   );
 

@@ -119,92 +119,52 @@
 
     <div class="volunteer" section id="vol-sect">
         <div class="title-head">
-            <h1 class="title">Our super heroes </h1>
+            <h1 class="title">Our Super Heroes</h1>
         </div>
-        <p class="content">We depend on volunteers! Volunteers make up 96% of our total<span class="line"><br></span>
-            workforce and carry on our humanitarian work. Blood donation is healthy,<span class="line"><br></span> our
-            volunteers are available 24/7 to help and donate
-            blood. Blood banks store blood<span class="line"><br></span> bags but our volunteers are there with you in
-            an emergency for a blood transfusion real time.</p>
-        <ul class="volunt">
-            <li class="vol">
-                <span class=" vol-i number">1 </span>
-                <span class=" vol-i name">Garvit</span>
-                <span class=" vol-i location">Delhi,<br>India</span>
-                <span class=" vol-i blood group">O+<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
-            <li class="vol">
-                <span class=" vol-i number">2</span>
-                <span class=" vol-i name">Mehere kaur</span>
-                <span class=" vol-i location">Ghaziabad,<br>Uttar Pradesh</span>
-                <span class=" vol-i blood group">B+<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
-            <li class="vol">
-                <span class=" vol-i number">3</span>
-                <span class=" vol-i name">Kenny</span>
-                <span class=" vol-i location">Kerela,<br>India</span>
-                <span class=" vol-i blood group">AB+<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
-            <li class="vol">
-                <span class=" vol-i number">4</span>
-                <span class=" vol-i name">Sarah</span>
-                <span class=" vol-i location">Tamil Nadu,<br>India</span>
-                <span class=" vol-i blood group">A+<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
+        <p class="content">
+            Every completed donation is a life-saving act. We honor active donors below and invite everyone to join this
+            movement. Your one step can become someone's second chance.
+        </p>
 
-            <li class="vol">
-                <span class=" vol-i number">5</span>
-                <span class=" vol-i name">Kenneth</span>
-                <span class=" vol-i location">Ayodhya,<br>Uttar Pradesh</span>
-                <span class=" vol-i blood group"> O+<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
+        <div class="hero-board-head">
+            <p id="heroBoardStatus">Loading live donor leaderboard...</p>
+            <button id="refreshHeroesBtn" type="button" class="hero-refresh-btn">
+                <i class="fas fa-sync-alt"></i> Refresh Board
+            </button>
+        </div>
 
-            <li class="vol">
-                <span class=" vol-i number">6</span>
-                <span class=" vol-i name">Ritika</span>
-                <span class=" vol-i location">Ramnagar,<br>Uttarakhand</span>
-                <span class=" vol-i blood group">O+<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
+        <div class="hero-honour-cards" id="heroHonourCards">
+            <div class="hero-honour-card">
+                <h3>Legend Hero</h3>
+                <p>Top active donor gets the Hall of Honor spotlight.</p>
+            </div>
+            <div class="hero-honour-card">
+                <h3>Gold Hero</h3>
+                <p>Consistent lifesavers ranked 2 and 3.</p>
+            </div>
+            <div class="hero-honour-card">
+                <h3>Community Hero</h3>
+                <p>Every verified donor is respected and appreciated.</p>
+            </div>
+        </div>
 
+        <ul class="volunt" id="liveSuperheroList">
             <li class="vol">
-                <span class=" vol-i number">7</span>
-                <span class=" vol-i name">Krish Maurya</span>
-                <span class=" vol-i location">Surat,<br>Gujarat</span>
-                <span class=" vol-i blood group">O- <i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
+                <span class="vol-i number">1</span>
+                <span class="vol-i name">Loading Hero...</span>
+                <span class="vol-i location">Fetching live data</span>
+                <span class="vol-i blood group">-- <i class="fa fa-tint" aria-hidden="true"></i></span>
             </li>
-
-            <li class="vol">
-                <span class=" vol-i number">8</span>
-                <span class=" vol-i name">Tushkar</span>
-                <span class=" vol-i location">Bengaluru,<br>Karnataka</span>
-                <span class=" vol-i blood group">AB+<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
-
-            <li class="vol">
-                <span class=" vol-i number">9</span>
-                <span class=" vol-i name">Nitin</span>
-                <span class=" vol-i location">Lucknow</span>
-                <span class=" vol-i blood group">AB-<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
-
-            <li class="vol">
-                <span class=" vol-i number">10</span>
-                <span class=" vol-i name">Riya</span>
-                <span class=" vol-i location">Delhi,<br>India</span>
-                <span class=" vol-i blood group">B+<i class="fa fa-tint" aria-hidden="true"></i>
-                </span>
-            </li>
-
         </ul>
+
+        <p class="hero-encouragement" id="heroEncouragement">
+            Donate blood today and appear on the Super Heroes board.
+        </p>
+
+        <div class="hero-cta">
+            <a href="/donate" target="_blank">Donate Now</a>
+            <a href="/register" target="_blank">Join as Donor</a>
+        </div>
     </div>
     <!--REVIEW-->
     <section class="customer-review">
@@ -316,6 +276,7 @@
 
     <!--js for scroll effects-->
     <script src="scroll.js"></script>
+    <script src="index.js"></script>
 
 </body>
 

@@ -13,11 +13,13 @@ const contactRoutes = require('./routes/contact');
 const inventoryRoutes = require('./routes/inventory');
 const matchingRoutes = require('./routes/matching');
 const alertRoutes = require('./routes/alerts');
+const feedbackRoutes = require('./routes/feedback');
 
 const app = express();
 const PORT = Number.parseInt(process.env.PORT, 10) || 3000;
 
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 const getCorsOrigins = () => {
   if (!process.env.CORS_ORIGIN) {
@@ -81,7 +83,7 @@ const requireDatabase = async (req, res, next) => {
 
     return res.status(503).json({
       success: false,
-      message: 'Database is currently unavailable. Check DB_* environment variables and MySQL availability.'
+      message: 'Database is currently unavailable. Check DATABASE_URL (preferred) or DB_* variables and PostgreSQL/Supabase availability.'
     });
   } catch (error) {
     return next(error);
@@ -107,6 +109,10 @@ app.get('/api', (req, res) => {
       auth: {
         'POST /api/auth/register': 'Register a new user',
         'POST /api/auth/login': 'User login',
+        'POST /api/auth/resend-verification': 'Resend verification email',
+        'GET /api/auth/verify-email?token=...': 'Verify user email',
+        'POST /api/auth/forgot-password': 'Send password reset link',
+        'POST /api/auth/reset-password': 'Reset password using token',
         'GET /api/auth/profile/:id': 'Get user profile',
         'PUT /api/auth/profile/:id': 'Update user profile'
       },
@@ -127,6 +133,7 @@ app.get('/api', (req, res) => {
         'GET /api/donations/donor/:donorId': 'Get donations by donor',
         'GET /api/donations/by-blood-group/:bloodGroup': 'Get donations by blood group',
         'GET /api/donations/statistics': 'Get donation statistics',
+        'GET /api/donations/superheroes': 'Get active donor leaderboard',
         'PUT /api/donations/:id/cancel': 'Cancel a donation'
       },
       contact: {
@@ -152,10 +159,19 @@ app.get('/api', (req, res) => {
       },
       matching: {
         'GET /api/matching/nearby-donors': 'Match eligible donors by location and blood group',
+        'GET /api/matching/donors-by-location': 'Search donors by city/state/address text',
+        'GET /api/matching/receivers-by-location': 'Search receivers by city/state/address text',
         'GET /api/matching/cache/stats': 'Get donor search cache statistics'
+      },
+      feedback: {
+        'POST /api/feedback/submit': 'Submit app rating and feedback',
+        'GET /api/feedback/user/:userId': 'Get logged-in user rating/feedback',
+        'GET /api/feedback/summary': 'Get average rating and distribution',
+        'GET /api/feedback/recent': 'Get recent feedback comments'
       },
       alerts: {
         'GET /api/alerts/stream': 'Open live emergency alert stream (SSE)',
+        'GET /api/alerts/recent': 'Get recent nearby emergency alerts (fallback/polling)',
         'GET /api/alerts/stats': 'Get active stream connections'
       }
     }
@@ -169,6 +185,7 @@ app.use('/api/donations', requireDatabase, donationRoutes);
 app.use('/api/contact', requireDatabase, contactRoutes);
 app.use('/api/inventory', requireDatabase, inventoryRoutes);
 app.use('/api/matching', requireDatabase, matchingRoutes);
+app.use('/api/feedback', requireDatabase, feedbackRoutes);
 app.use('/api/alerts', requireDatabase, alertRoutes);
 
 // Serve the main HTML files
@@ -182,6 +199,14 @@ app.get('/register', (req, res) => {
 
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'login.html'));
+});
+
+app.get('/forgot-password', (req, res) => {
+  res.sendFile(path.join(__dirname, 'forgot-password.html'));
+});
+
+app.get('/reset-password', (req, res) => {
+  res.sendFile(path.join(__dirname, 'reset-password.html'));
 });
 
 app.get('/donate', (req, res) => {
@@ -200,6 +225,15 @@ app.get('/dashboard', (req, res) => {
 app.use((err, req, res, next) => {
   const databaseErrorCodes = new Set([
     'ECONNREFUSED',
+    'ENOTFOUND',
+    'ETIMEDOUT',
+    '57P01', // admin_shutdown
+    '28P01', // invalid_password
+    '28000', // invalid_authorization_specification
+    '3D000', // invalid_catalog_name
+    '42P01', // undefined_table
+    '42703', // undefined_column
+    '53300', // too_many_connections
     'PROTOCOL_CONNECTION_LOST',
     'ER_ACCESS_DENIED_ERROR',
     'ER_BAD_DB_ERROR',

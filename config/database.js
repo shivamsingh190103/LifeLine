@@ -1,4 +1,4 @@
-const mysql = require('mysql2');
+const { Pool } = require('pg');
 require('dotenv').config();
 
 const parseIntEnv = (value, fallback) => {
@@ -6,35 +6,116 @@ const parseIntEnv = (value, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-// Database configuration
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'bloodbank_db',
-  port: parseIntEnv(process.env.DB_PORT, 3306),
-  charset: 'utf8mb4'
+const envFlagEnabled = value => {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === '1' ||
+    normalized === 'true' ||
+    normalized === 'yes' ||
+    normalized === 'on' ||
+    normalized === 'require';
 };
 
-// Create connection pool
-const pool = mysql.createPool({
-  ...dbConfig,
-  waitForConnections: true,
-  connectionLimit: parseIntEnv(process.env.DB_CONNECTION_LIMIT, 10),
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 10000,
-  connectTimeout: parseIntEnv(process.env.DB_CONNECT_TIMEOUT_MS, 10000)
-});
+const toPgPlaceholders = sql => {
+  let position = 0;
+  return sql.replace(/\?/g, () => {
+    position += 1;
+    return `$${position}`;
+  });
+};
 
-// Create promise wrapper
-const promisePool = pool.promise();
+const getInsertId = rows => {
+  if (!rows || rows.length === 0) {
+    return null;
+  }
+
+  const row = rows[0];
+  if (Object.prototype.hasOwnProperty.call(row, 'id')) {
+    return row.id;
+  }
+
+  const firstValue = Object.values(row)[0];
+  return firstValue ?? null;
+};
+
+const normalizeExecuteResult = result => {
+  const command = (result.command || '').toUpperCase();
+
+  if (command === 'SELECT' || command === 'SHOW' || command === 'WITH') {
+    return [result.rows];
+  }
+
+  return [{
+    affectedRows: result.rowCount,
+    insertId: getInsertId(result.rows)
+  }];
+};
+
+const buildDbConfig = () => {
+  const useConnectionString = Boolean(process.env.DATABASE_URL);
+  const shouldUseSsl =
+    envFlagEnabled(process.env.DATABASE_SSL) ||
+    (useConnectionString &&
+      !process.env.DATABASE_URL.includes('localhost') &&
+      !process.env.DATABASE_URL.includes('127.0.0.1'));
+
+  if (useConnectionString) {
+    return {
+      connectionString: process.env.DATABASE_URL,
+      ssl: shouldUseSsl ? { rejectUnauthorized: false } : false,
+      max: parseIntEnv(process.env.DB_CONNECTION_LIMIT, 10),
+      connectionTimeoutMillis: parseIntEnv(process.env.DB_CONNECT_TIMEOUT_MS, 10000),
+      idleTimeoutMillis: parseIntEnv(process.env.DB_IDLE_TIMEOUT_MS, 30000)
+    };
+  }
+
+  return {
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'bloodbank_db',
+    port: parseIntEnv(process.env.DB_PORT, 5432),
+    ssl: shouldUseSsl ? { rejectUnauthorized: false } : false,
+    max: parseIntEnv(process.env.DB_CONNECTION_LIMIT, 10),
+    connectionTimeoutMillis: parseIntEnv(process.env.DB_CONNECT_TIMEOUT_MS, 10000),
+    idleTimeoutMillis: parseIntEnv(process.env.DB_IDLE_TIMEOUT_MS, 30000)
+  };
+};
+
+const dbConfig = buildDbConfig();
+const rawPool = new Pool(dbConfig);
 let lastConnectionStatus = false;
+
+const executeWithClient = async (client, sql, params = []) => {
+  const text = toPgPlaceholders(sql);
+  const result = await client.query(text, params);
+  return normalizeExecuteResult(result);
+};
+
+const pool = {
+  execute: (sql, params = []) => executeWithClient(rawPool, sql, params),
+  query: (sql, params = []) => executeWithClient(rawPool, sql, params),
+  getConnection: async () => {
+    const client = await rawPool.connect();
+
+    return {
+      execute: (sql, params = []) => executeWithClient(client, sql, params),
+      query: (sql, params = []) => executeWithClient(client, sql, params),
+      beginTransaction: () => client.query('BEGIN'),
+      commit: () => client.query('COMMIT'),
+      rollback: () => client.query('ROLLBACK'),
+      release: () => client.release()
+    };
+  }
+};
 
 // Test database connection
 const testConnection = async () => {
   try {
-    await promisePool.query('SELECT 1');
+    await rawPool.query('SELECT 1');
     if (!lastConnectionStatus) {
       console.log('✅ Database connected successfully');
     }
@@ -53,7 +134,7 @@ const testConnection = async () => {
 };
 
 module.exports = {
-  pool: promisePool,
+  pool,
   testConnection,
   dbConfig
 };

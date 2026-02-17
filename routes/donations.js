@@ -131,7 +131,8 @@ router.post('/schedule', async (req, res) => {
     const [result] = await connection.execute(
       `INSERT INTO blood_donations 
        (donor_id, request_id, donation_date, blood_group, units_donated, donation_center, notes) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`,
       [
         normalizedDonorId,
         normalizedRequestId,
@@ -187,8 +188,8 @@ router.put('/:id/complete', async (req, res) => {
     // Update donation status to completed only once
     const [result] = await connection.execute(
       `UPDATE blood_donations 
-       SET status = "Completed", notes = COALESCE(?, notes), updated_at = CURRENT_TIMESTAMP 
-       WHERE id = ? AND status <> "Completed"`,
+       SET status = 'Completed', notes = COALESCE(?, notes), updated_at = CURRENT_TIMESTAMP 
+       WHERE id = ? AND status <> 'Completed'`,
       [notes, donationId]
     );
 
@@ -370,14 +371,16 @@ router.get('/statistics', async (req, res) => {
   try {
     // Total donations
     const [totalDonations] = await pool.execute(
-      'SELECT COUNT(*) as total FROM blood_donations WHERE status = "Completed"'
+      `SELECT COUNT(*) as total
+       FROM blood_donations
+       WHERE status = 'Completed'`
     );
 
     // Donations by blood group
     const [donationsByBloodGroup] = await pool.execute(
       `SELECT blood_group, COUNT(*) as count, SUM(units_donated) as total_units
        FROM blood_donations 
-       WHERE status = "Completed"
+       WHERE status = 'Completed'
        GROUP BY blood_group`
     );
 
@@ -385,8 +388,8 @@ router.get('/statistics', async (req, res) => {
     const [recentDonations] = await pool.execute(
       `SELECT COUNT(*) as recent_count 
        FROM blood_donations 
-       WHERE status = "Completed" 
-       AND donation_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`
+       WHERE status = 'Completed'
+       AND donation_date >= (CURRENT_DATE - INTERVAL '30 days')`
     );
 
     // Top donors
@@ -394,7 +397,7 @@ router.get('/statistics', async (req, res) => {
       `SELECT u.name, COUNT(bd.id) as donation_count, SUM(bd.units_donated) as total_units
        FROM blood_donations bd
        JOIN users u ON bd.donor_id = u.id
-       WHERE bd.status = "Completed"
+       WHERE bd.status = 'Completed'
        GROUP BY bd.donor_id, u.name
        ORDER BY donation_count DESC
        LIMIT 10`
@@ -419,6 +422,104 @@ router.get('/statistics', async (req, res) => {
   }
 });
 
+// Gamified donor leaderboard
+router.get('/superheroes', async (req, res) => {
+  try {
+    const requestedLimit = parsePositiveInt(req.query.limit);
+    const requestedDays = parsePositiveInt(req.query.days);
+    const limit = requestedLimit ? Math.min(requestedLimit, 50) : 10;
+    const days = requestedDays ? Math.min(requestedDays, 3650) : 180;
+
+    const [leaders] = await pool.execute(
+      `SELECT
+         u.id,
+         u.name,
+         u.blood_group,
+         u.city,
+         u.state,
+         u.last_donation_date,
+         COUNT(bd.id)::INT AS donation_count,
+         COALESCE(SUM(bd.units_donated), 0)::INT AS total_units,
+         MAX(bd.donation_date) AS latest_donation_date,
+         COALESCE(
+           SUM(CASE
+             WHEN bd.donation_date >= (CURRENT_DATE - (? * INTERVAL '1 day')) THEN bd.units_donated
+             ELSE 0
+           END),
+           0
+         )::INT AS active_units
+       FROM users u
+       JOIN blood_donations bd ON bd.donor_id = u.id
+       WHERE u.is_donor = TRUE
+         AND bd.status = 'Completed'
+       GROUP BY u.id, u.name, u.blood_group, u.city, u.state, u.last_donation_date
+       ORDER BY donation_count DESC, active_units DESC, latest_donation_date DESC
+       LIMIT ?`,
+      [days, limit]
+    );
+
+    let source = 'completed_donations';
+    let rankedLeaders = leaders;
+
+    if (rankedLeaders.length === 0) {
+      const [registeredDonors] = await pool.execute(
+        `SELECT
+           u.id,
+           u.name,
+           u.blood_group,
+           u.city,
+           u.state,
+           u.last_donation_date,
+           0::INT AS donation_count,
+           0::INT AS total_units,
+           u.last_donation_date AS latest_donation_date,
+           0::INT AS active_units
+         FROM users u
+         WHERE u.is_donor = TRUE
+         ORDER BY u.updated_at DESC, u.created_at DESC
+         LIMIT ?`,
+        [limit]
+      );
+
+      source = 'registered_donors';
+      rankedLeaders = registeredDonors;
+    }
+
+    const withBadges = rankedLeaders.map((leader, index) => {
+      let badge = 'Community Hero';
+      if (index === 0) {
+        badge = 'Legend Hero';
+      } else if (index < 3) {
+        badge = 'Gold Hero';
+      } else if (index < 6) {
+        badge = 'Silver Hero';
+      }
+
+      return {
+        rank: index + 1,
+        badge,
+        thank_you_note: leader.donation_count > 0
+          ? `Special thanks ${leader.name} for saving lives through active donations.`
+          : `Thank you ${leader.name} for registering as a donor. Complete your next donation to move up this board.`,
+        ...leader
+      };
+    });
+
+    return res.json({
+      success: true,
+      period_days: days,
+      source,
+      superheroes: withBadges
+    });
+  } catch (error) {
+    console.error('Get superheroes leaderboard error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load donor leaderboard'
+    });
+  }
+});
+
 // Cancel a donation
 router.put('/:id/cancel', async (req, res) => {
   try {
@@ -432,8 +533,8 @@ router.put('/:id/cancel', async (req, res) => {
 
     const [result] = await pool.execute(
       `UPDATE blood_donations 
-       SET status = "Cancelled", updated_at = CURRENT_TIMESTAMP 
-       WHERE id = ? AND status <> "Completed"`,
+       SET status = 'Cancelled', updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND status <> 'Completed'`,
       [donationId]
     );
 

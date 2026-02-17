@@ -74,23 +74,22 @@ class AlertStream {
 
     for (const [clientId, client] of this.clients.entries()) {
       try {
-        if (client.latitude === null || client.longitude === null) {
-          continue;
-        }
-
         if (client.bloodGroup && normalizedBloodGroup && client.bloodGroup !== normalizedBloodGroup) {
           continue;
         }
+        const canMeasureDistance = client.latitude !== null && client.longitude !== null;
+        let distanceKm = null;
+        if (canMeasureDistance) {
+          distanceKm = haversineDistanceKm(
+            latitude,
+            longitude,
+            client.latitude,
+            client.longitude
+          );
 
-        const distanceKm = haversineDistanceKm(
-          latitude,
-          longitude,
-          client.latitude,
-          client.longitude
-        );
-
-        if (distanceKm > Math.min(client.radiusKm, normalizedRadiusKm)) {
-          continue;
+          if (distanceKm > Math.min(client.radiusKm, normalizedRadiusKm)) {
+            continue;
+          }
         }
 
         delivered += 1;
@@ -98,7 +97,7 @@ class AlertStream {
           ...payload,
           request_id: requestId,
           blood_group: normalizedBloodGroup,
-          distance_km: Number.parseFloat(distanceKm.toFixed(2)),
+          distance_km: Number.isFinite(distanceKm) ? Number.parseFloat(distanceKm.toFixed(2)) : null,
           timestamp: new Date().toISOString()
         };
 

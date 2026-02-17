@@ -1,89 +1,94 @@
-// Registration form handling
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', () => {
     const registrationForm = document.getElementById('registrationForm');
     const passwordInput = document.getElementById('password_data');
     const safetyDiv = document.querySelector('.safety');
+    const skipButton = document.getElementById('skipRegistrationBtn');
+    const phoneInput = document.querySelector('input[name="phone"]');
+
     if (!registrationForm || !passwordInput || !safetyDiv) {
         return;
     }
 
-    addBloodGroupSelection();
-    addLocationFields();
     ensureCoordinateFields(registrationForm);
     captureUserCoordinates(registrationForm);
 
-    // Password strength indicator
-    passwordInput.addEventListener('input', function() {
-        const password = this.value;
+    if (phoneInput) {
+        phoneInput.addEventListener('input', () => {
+            phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 10);
+        });
+    }
+
+    passwordInput.addEventListener('input', () => {
+        const password = passwordInput.value;
         let strength = 0;
-        let message = '';
 
-        if (password.length >= 8) strength++;
-        if (/[a-z]/.test(password)) strength++;
-        if (/[A-Z]/.test(password)) strength++;
-        if (/[0-9]/.test(password)) strength++;
-        if (/[^A-Za-z0-9]/.test(password)) strength++;
+        if (password.length >= 8) strength += 1;
+        if (/[a-z]/.test(password)) strength += 1;
+        if (/[A-Z]/.test(password)) strength += 1;
+        if (/[0-9]/.test(password)) strength += 1;
+        if (/[^A-Za-z0-9]/.test(password)) strength += 1;
 
-        switch (strength) {
-            case 0:
-            case 1:
-                message = 'Very Weak';
-                safetyDiv.style.color = '#ff4444';
-                break;
-            case 2:
-                message = 'Weak';
-                safetyDiv.style.color = '#ff8800';
-                break;
-            case 3:
-                message = 'Medium';
-                safetyDiv.style.color = '#ffaa00';
-                break;
-            case 4:
-                message = 'Strong';
-                safetyDiv.style.color = '#00aa00';
-                break;
-            case 5:
-                message = 'Very Strong';
-                safetyDiv.style.color = '#008800';
-                break;
+        if (strength <= 1) {
+            safetyDiv.textContent = 'Very Weak';
+            safetyDiv.style.color = '#d93838';
+            return;
         }
-
-        safetyDiv.textContent = message;
-    });
-
-    // Form submission
-    registrationForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-
-        const formData = new FormData(registrationForm);
-        const userData = {
-            name: formData.get('name'),
-            email: formData.get('email'),
-            password: formData.get('password'),
-            phone: formData.get('phone') || '',
-            blood_group: formData.get('blood_group') || 'O+',
-            location: formData.get('location') || '',
-            city: formData.get('city') || '',
-            state: formData.get('state') || '',
-            latitude: formData.get('latitude') || null,
-            longitude: formData.get('longitude') || null
-        };
-
-        // Validate required fields
-        if (!userData.name || !userData.email || !userData.password) {
-            showMessage('Please fill in all required fields', 'error');
+        if (strength === 2) {
+            safetyDiv.textContent = 'Weak';
+            safetyDiv.style.color = '#ef7f1a';
+            return;
+        }
+        if (strength === 3) {
+            safetyDiv.textContent = 'Medium';
+            safetyDiv.style.color = '#d6a312';
+            return;
+        }
+        if (strength === 4) {
+            safetyDiv.textContent = 'Strong';
+            safetyDiv.style.color = '#2d9b45';
             return;
         }
 
-        // Validate email format
+        safetyDiv.textContent = 'Very Strong';
+        safetyDiv.style.color = '#13853c';
+    });
+
+    registrationForm.addEventListener('submit', async event => {
+        event.preventDefault();
+
+        const formData = new FormData(registrationForm);
+        const phoneDigits = String(formData.get('phone') || '').replace(/\D/g, '');
+        const userData = {
+            name: String(formData.get('name') || '').trim(),
+            email: String(formData.get('email') || '').trim(),
+            password: String(formData.get('password') || ''),
+            blood_group: String(formData.get('blood_group') || '').trim(),
+            phone: phoneDigits,
+            location: String(formData.get('location') || '').trim(),
+            city: String(formData.get('city') || '').trim(),
+            state: String(formData.get('state') || '').trim(),
+            latitude: formData.get('latitude') || null,
+            longitude: formData.get('longitude') || null,
+            is_donor: true
+        };
+
+        if (!userData.name || !userData.email || !userData.password || !userData.blood_group || !userData.phone || !userData.location || !userData.city || !userData.state) {
+            showMessage('Please fill all required fields', 'error');
+            return;
+        }
+
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(userData.email)) {
             showMessage('Please enter a valid email address', 'error');
             return;
         }
 
-        // Validate password strength
-        if (passwordInput.value.length < 8) {
+        if (userData.phone.length !== 10) {
+            showMessage('Phone number must be exactly 10 digits', 'error');
+            return;
+        }
+
+        if (userData.password.length < 8) {
             showMessage('Password must be at least 8 characters long', 'error');
             return;
         }
@@ -94,226 +99,44 @@ document.addEventListener('DOMContentLoaded', function() {
             const response = await fetch('/api/auth/register', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(userData)
             });
 
             const result = await response.json();
-
-            if (result.success) {
-                showMessage('Account created successfully! Redirecting to login...', 'success');
-                
-                // Store user data in localStorage for login
-                localStorage.setItem('registeredUser', JSON.stringify({
-                    email: userData.email,
-                    name: userData.name
-                }));
-
-                // Redirect to login page after 2 seconds
-                setTimeout(() => {
-                    window.location.href = '/login';
-                }, 2000);
-            } else {
+            if (!response.ok || !result.success) {
                 showMessage(result.message || 'Registration failed', 'error');
+                return;
             }
+
+            const successMessage = result.requires_verification
+                ? 'Account created. Please verify your email, then login.'
+                : 'Account created successfully! Redirecting to login...';
+            showMessage(successMessage, 'success');
+
+            localStorage.setItem('registeredUser', JSON.stringify({
+                email: userData.email,
+                name: userData.name
+            }));
+
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 1800);
         } catch (error) {
             console.error('Registration error:', error);
             showMessage('Network error. Please try again.', 'error');
         }
     });
 
-    // Skip button functionality
-    const skipButton = document.querySelector('.btn:not(.primary)');
     if (skipButton) {
-        skipButton.addEventListener('click', function(e) {
-            e.preventDefault();
+        skipButton.addEventListener('click', () => {
             window.location.href = '/';
         });
     }
 });
 
-// Message display function
-function showMessage(message, type = 'info') {
-    // Remove existing message
-    const existingMessage = document.querySelector('.message');
-    if (existingMessage) {
-        existingMessage.remove();
-    }
-
-    // Create message element
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${type}`;
-    messageDiv.textContent = message;
-
-    // Style the message
-    messageDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 20px;
-        border-radius: 5px;
-        color: white;
-        font-weight: bold;
-        z-index: 1000;
-        max-width: 300px;
-        word-wrap: break-word;
-    `;
-
-    // Set background color based on type
-    switch (type) {
-        case 'success':
-            messageDiv.style.backgroundColor = '#4CAF50';
-            break;
-        case 'error':
-            messageDiv.style.backgroundColor = '#f44336';
-            break;
-        case 'warning':
-            messageDiv.style.backgroundColor = '#ff9800';
-            break;
-        default:
-            messageDiv.style.backgroundColor = '#2196F3';
-    }
-
-    // Add to page
-    document.body.appendChild(messageDiv);
-
-    // Remove after 5 seconds
-    setTimeout(() => {
-        if (messageDiv.parentNode) {
-            messageDiv.remove();
-        }
-    }, 5000);
-}
-
-// Add blood group selection to the form
-function addBloodGroupSelection() {
-    const form = document.querySelector('form');
-    if (!form || form.querySelector('select[name="blood_group"]')) {
-        return;
-    }
-
-    const passwordField = form.querySelector('input[type="password"]');
-    if (!passwordField) {
-        return;
-    }
-    
-    // Create blood group select element
-    const bloodGroupDiv = document.createElement('div');
-    bloodGroupDiv.style.cssText = `
-        position: relative;
-        margin-bottom: 20px;
-    `;
-
-    const bloodGroupIcon = document.createElement('i');
-    bloodGroupIcon.className = 'fas fa-tint';
-    bloodGroupIcon.style.cssText = `
-        position: absolute;
-        left: 15px;
-        top: 50%;
-        transform: translateY(-50%);
-        color: #666;
-        z-index: 1;
-    `;
-
-    const bloodGroupSelect = document.createElement('select');
-    bloodGroupSelect.name = 'blood_group';
-    bloodGroupSelect.style.cssText = `
-        width: 100%;
-        padding: 15px 15px 15px 45px;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        font-size: 16px;
-        background-color: white;
-        outline: none;
-    `;
-
-    const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-    bloodGroups.forEach(group => {
-        const option = document.createElement('option');
-        option.value = group;
-        option.textContent = group;
-        bloodGroupSelect.appendChild(option);
-    });
-
-    bloodGroupDiv.appendChild(bloodGroupIcon);
-    bloodGroupDiv.appendChild(bloodGroupSelect);
-
-    // Insert before password field
-    passwordField.parentNode.insertBefore(bloodGroupDiv, passwordField);
-}
-
-// Add location fields to the form
-function addLocationFields() {
-    const form = document.querySelector('form');
-    if (!form || form.querySelector('input[name="location"]')) {
-        return;
-    }
-
-    const bloodGroupSelect = form.querySelector('select[name="blood_group"]');
-    if (!bloodGroupSelect) {
-        return;
-    }
-
-    const bloodGroupDiv = bloodGroupSelect.parentNode;
-    
-    // Create location fields
-    const locationDiv = document.createElement('div');
-    locationDiv.style.cssText = `
-        margin-bottom: 20px;
-    `;
-
-    const locationInput = document.createElement('input');
-    locationInput.type = 'text';
-    locationInput.name = 'location';
-    locationInput.placeholder = 'Address';
-    locationInput.style.cssText = `
-        width: 100%;
-        padding: 15px 15px 15px 45px;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        font-size: 16px;
-        margin-bottom: 10px;
-        outline: none;
-    `;
-
-    const cityInput = document.createElement('input');
-    cityInput.type = 'text';
-    cityInput.name = 'city';
-    cityInput.placeholder = 'City';
-    cityInput.style.cssText = `
-        width: 48%;
-        padding: 15px;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        font-size: 16px;
-        margin-right: 2%;
-        outline: none;
-    `;
-
-    const stateInput = document.createElement('input');
-    stateInput.type = 'text';
-    stateInput.name = 'state';
-    stateInput.placeholder = 'State';
-    stateInput.style.cssText = `
-        width: 48%;
-        padding: 15px;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        font-size: 16px;
-        outline: none;
-    `;
-
-    const cityStateDiv = document.createElement('div');
-    cityStateDiv.appendChild(cityInput);
-    cityStateDiv.appendChild(stateInput);
-
-    locationDiv.appendChild(locationInput);
-    locationDiv.appendChild(cityStateDiv);
-
-    // Insert after blood group
-    bloodGroupDiv.parentNode.insertBefore(locationDiv, bloodGroupDiv.nextSibling);
-}
+const LATEST_LOCATION_KEY = 'latestUserLocation';
 
 function ensureCoordinateFields(form) {
     if (!form.querySelector('input[name="latitude"]')) {
@@ -347,14 +170,64 @@ function captureUserCoordinates(form) {
             if (longitudeField) {
                 longitudeField.value = position.coords.longitude.toFixed(7);
             }
+
+            localStorage.setItem(LATEST_LOCATION_KEY, JSON.stringify({
+                latitude: Number.parseFloat(position.coords.latitude.toFixed(7)),
+                longitude: Number.parseFloat(position.coords.longitude.toFixed(7))
+            }));
         },
         () => {
-            // Geolocation permission is optional; registration works without it.
+            // Registration still works if location access is denied.
         },
         {
             enableHighAccuracy: false,
             timeout: 7000,
-            maximumAge: 60000
+            maximumAge: 0
         }
     );
+}
+
+function showMessage(message, type = 'info') {
+    const existingMessage = document.querySelector('.message');
+    if (existingMessage) {
+        existingMessage.remove();
+    }
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${type}`;
+    messageDiv.textContent = message;
+    messageDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 10px;
+        color: #fff;
+        font-weight: 700;
+        z-index: 1000;
+        max-width: 340px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+    `;
+
+    switch (type) {
+        case 'success':
+            messageDiv.style.backgroundColor = '#2f9e44';
+            break;
+        case 'error':
+            messageDiv.style.backgroundColor = '#e03131';
+            break;
+        case 'warning':
+            messageDiv.style.backgroundColor = '#f08c00';
+            break;
+        default:
+            messageDiv.style.backgroundColor = '#1c7ed6';
+    }
+
+    document.body.appendChild(messageDiv);
+
+    setTimeout(() => {
+        if (messageDiv.parentNode) {
+            messageDiv.remove();
+        }
+    }, 5000);
 }

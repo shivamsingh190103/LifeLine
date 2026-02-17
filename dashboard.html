@@ -21,6 +21,12 @@
                     <li><a href="/">Home</a></li>
                     <li><a href="/donate">Donate</a></li>
                     <li><a href="/help">Contact</a></li>
+                    <li>
+                        <a href="#notificationsSection" class="notification-bell">
+                            <i class="fas fa-bell"></i>
+                            <span id="notificationCount">0</span>
+                        </a>
+                    </li>
                     <li><a href="#" id="logoutBtn">Logout</a></li>
                 </ul>
             </div>
@@ -50,6 +56,9 @@
                             <span class="label">Phone:</span>
                             <span id="userPhone" class="value">-</span>
                         </div>
+                    </div>
+                    <div class="profile-actions">
+                        <button class="btn-secondary compact" id="refreshMyLocationBtn" type="button">Update My Location</button>
                     </div>
                 </div>
             </section>
@@ -135,6 +144,143 @@
                 </div>
             </section>
 
+            <!-- Notification Center -->
+            <section class="notifications-section" id="notificationsSection">
+                <div class="section-head">
+                    <h3>Notification Center</h3>
+                    <button class="btn-secondary compact" id="clearNotificationsBtn" type="button">Clear</button>
+                </div>
+                <div class="notifications-container" id="notificationFeed">
+                    <div class="loading">No notifications yet.</div>
+                </div>
+            </section>
+
+            <!-- Donor/Receiver Search by Location -->
+            <section class="location-search-section">
+                <h3>Search by Location</h3>
+                <div class="location-search-grid">
+                    <div class="search-card">
+                        <h4>Find Donors by Location</h4>
+                        <form id="donorLocationSearchForm" class="search-form">
+                            <input type="text" id="donorLocationQuery" placeholder="City, state, or address" required>
+                            <select id="donorSearchBloodGroup">
+                                <option value="">All Blood Groups</option>
+                                <option value="A+">A+</option>
+                                <option value="A-">A-</option>
+                                <option value="B+">B+</option>
+                                <option value="B-">B-</option>
+                                <option value="AB+">AB+</option>
+                                <option value="AB-">AB-</option>
+                                <option value="O+">O+</option>
+                                <option value="O-">O-</option>
+                            </select>
+                            <select id="donorSearchLimit">
+                                <option value="5">Top 5</option>
+                                <option value="10" selected>Top 10</option>
+                                <option value="20">Top 20</option>
+                            </select>
+                            <button type="submit" class="btn-primary">Search Donors</button>
+                        </form>
+                        <div class="search-results" id="donorLocationResults">
+                            <div class="loading">Search donors in your location.</div>
+                        </div>
+                    </div>
+
+                    <div class="search-card">
+                        <h4>Find Receivers by Location</h4>
+                        <form id="receiverLocationSearchForm" class="search-form">
+                            <input type="text" id="receiverLocationQuery" placeholder="City, state, or address" required>
+                            <select id="receiverSearchBloodGroup">
+                                <option value="">All Blood Groups</option>
+                                <option value="A+">A+</option>
+                                <option value="A-">A-</option>
+                                <option value="B+">B+</option>
+                                <option value="B-">B-</option>
+                                <option value="AB+">AB+</option>
+                                <option value="AB-">AB-</option>
+                                <option value="O+">O+</option>
+                                <option value="O-">O-</option>
+                            </select>
+                            <select id="receiverSearchLimit">
+                                <option value="5">Top 5</option>
+                                <option value="10" selected>Top 10</option>
+                                <option value="20">Top 20</option>
+                            </select>
+                            <button type="submit" class="btn-primary">Search Receivers</button>
+                        </form>
+                        <div class="search-results" id="receiverLocationResults">
+                            <div class="loading">Search active requests in your location.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Gamified Superheroes List -->
+            <section class="superheroes-section">
+                <div class="section-head">
+                    <h3>Superheroes of Life</h3>
+                    <button class="btn-secondary compact" id="refreshSuperheroesBtn" type="button">Refresh</button>
+                </div>
+                <div class="superheroes-list" id="superheroesList">
+                    <div class="loading">Loading heroes...</div>
+                </div>
+            </section>
+
+            <!-- Rating & Feedback -->
+            <section class="feedback-section">
+                <div class="section-head">
+                    <h3>Rate Your Experience</h3>
+                    <button class="btn-secondary compact" id="refreshFeedbackBtn" type="button">Refresh</button>
+                </div>
+                <div class="feedback-grid">
+                    <div class="feedback-summary">
+                        <div class="metric-grid">
+                            <div class="metric">
+                                <span class="metric-label">Average Rating</span>
+                                <strong id="avgRatingValue">-</strong>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-label">Total Feedback</span>
+                                <strong id="feedbackCountValue">0</strong>
+                            </div>
+                        </div>
+                        <div id="ratingDistribution" class="rating-distribution">
+                            <div class="loading">Loading rating summary...</div>
+                        </div>
+                        <h4>Recent Feedback</h4>
+                        <div id="recentFeedbackList" class="recent-feedback-list">
+                            <div class="loading">Loading feedback...</div>
+                        </div>
+                    </div>
+
+                    <form id="feedbackForm" class="feedback-form">
+                        <label for="feedbackRating">Rating</label>
+                        <select id="feedbackRating" name="rating" required>
+                            <option value="">Select rating</option>
+                            <option value="5">5 - Excellent</option>
+                            <option value="4">4 - Good</option>
+                            <option value="3">3 - Average</option>
+                            <option value="2">2 - Needs improvement</option>
+                            <option value="1">1 - Poor</option>
+                        </select>
+
+                        <label for="feedbackCategory">Category</label>
+                        <select id="feedbackCategory" name="category">
+                            <option value="General">General</option>
+                            <option value="UI/UX">UI/UX</option>
+                            <option value="Speed">Speed</option>
+                            <option value="Location Matching">Location Matching</option>
+                            <option value="Notifications">Notifications</option>
+                        </select>
+
+                        <label for="feedbackText">Feedback</label>
+                        <textarea id="feedbackText" name="feedback_text" rows="4" placeholder="Tell us what can be improved..."></textarea>
+
+                        <button type="submit" class="btn-primary">Submit Feedback</button>
+                    </form>
+                </div>
+            </section>
+
             <!-- Recent Blood Requests -->
             <section class="requests-section">
                 <h3>Recent Blood Requests</h3>
@@ -145,7 +291,7 @@
 
             <!-- Recent Donations -->
             <section class="donations-section">
-                <h3>Recent Donations</h3>
+                <h3>My Recent Donations</h3>
                 <div class="donations-container" id="recentDonations">
                     <div class="loading">Loading donations...</div>
                 </div>

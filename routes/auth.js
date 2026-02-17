@@ -1,5 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 const { pool } = require('../config/database');
 const { parseLatitude, parseLongitude } = require('../services/geo');
 
@@ -7,10 +9,202 @@ const router = express.Router();
 
 const BLOOD_GROUPS = new Set(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']);
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_REGEX = /^\d{10}$/;
+const DEFAULT_DISPOSABLE_EMAIL_DOMAINS = new Set([
+  'mailinator.com',
+  'tempmail.com',
+  '10minutemail.com',
+  'guerrillamail.com',
+  'yopmail.com',
+  'trashmail.com',
+  'sharklasers.com',
+  'dispostable.com',
+  'fakeinbox.com',
+  'getnada.com'
+]);
 
 const parsePositiveInt = (value, fallback = null) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const parseBooleanEnv = value => {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+};
+
+const normalizePhoneDigits = value => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const digits = String(value).replace(/\D/g, '');
+  return digits || null;
+};
+
+const normalizePhoneDigitsUpdate = value => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+
+  const digits = String(value).replace(/\D/g, '');
+  return digits || null;
+};
+
+const isValidPhone = value => value === null || PHONE_REGEX.test(value);
+
+const getDisposableDomains = () => {
+  const configuredDomains = (process.env.DISPOSABLE_EMAIL_DOMAINS || '')
+    .split(',')
+    .map(domain => domain.trim().toLowerCase())
+    .filter(Boolean);
+
+  return new Set([...DEFAULT_DISPOSABLE_EMAIL_DOMAINS, ...configuredDomains]);
+};
+
+const isDisposableEmailDomain = email => {
+  const parts = email.split('@');
+  if (parts.length !== 2) {
+    return false;
+  }
+
+  const domain = parts[1].toLowerCase();
+  const disposableDomains = getDisposableDomains();
+
+  if (disposableDomains.has(domain)) {
+    return true;
+  }
+
+  return domain.endsWith('.mailinator.com');
+};
+
+const isLocalHost = host => {
+  if (!host) {
+    return false;
+  }
+  return host.includes('localhost') || host.includes('127.0.0.1');
+};
+
+const getRequestBaseUrl = req => {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || req.protocol || 'http';
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const host = forwardedHost || req.get('host');
+  return `${protocol}://${host}`;
+};
+
+const getAppBaseUrl = req => {
+  const configuredBaseUrl = (process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+  const requestBaseUrl = getRequestBaseUrl(req).replace(/\/+$/, '');
+
+  if (!configuredBaseUrl) {
+    return requestBaseUrl;
+  }
+
+  const configuredHost = (() => {
+    try {
+      return new URL(configuredBaseUrl).host;
+    } catch (error) {
+      return '';
+    }
+  })();
+  const requestHost = (() => {
+    try {
+      return new URL(requestBaseUrl).host;
+    } catch (error) {
+      return '';
+    }
+  })();
+
+  // If APP_BASE_URL is left as localhost but traffic is from deployed domain,
+  // prefer request host so reset/verify links continue to work in production.
+  if (isLocalHost(configuredHost) && requestHost && !isLocalHost(requestHost)) {
+    return requestBaseUrl;
+  }
+
+  return configuredBaseUrl;
+};
+
+let emailTransporter = null;
+
+const isMailConfigured = () => (
+  Boolean(process.env.SMTP_HOST) &&
+  Boolean(process.env.SMTP_USER) &&
+  Boolean(process.env.SMTP_PASS) &&
+  Boolean(process.env.SMTP_FROM)
+);
+
+const getMailTransporter = () => {
+  if (!isMailConfigured()) {
+    return null;
+  }
+
+  if (emailTransporter) {
+    return emailTransporter;
+  }
+
+  const smtpPort = Number.parseInt(process.env.SMTP_PORT, 10);
+  const port = Number.isInteger(smtpPort) && smtpPort > 0 ? smtpPort : 587;
+  const secure = parseBooleanEnv(process.env.SMTP_SECURE) || port === 465;
+
+  emailTransporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    secure,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+
+  return emailTransporter;
+};
+
+const sendPasswordResetEmail = async ({ to, name, resetLink }) => {
+  const transporter = getMailTransporter();
+  if (!transporter) {
+    throw new Error('SMTP is not configured');
+  }
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM,
+    to,
+    subject: 'BloodBank password reset',
+    text: `Hi ${name || 'there'},\n\nUse this link to reset your password:\n${resetLink}\n\nThis link expires soon. If you did not request this, ignore this email.`,
+    html: `
+      <p>Hi ${name || 'there'},</p>
+      <p>Use this link to reset your BloodBank password:</p>
+      <p><a href="${resetLink}">${resetLink}</a></p>
+      <p>This link expires soon. If you did not request this, you can ignore this email.</p>
+    `
+  });
+};
+
+const sendEmailVerificationEmail = async ({ to, name, verifyLink }) => {
+  const transporter = getMailTransporter();
+  if (!transporter) {
+    throw new Error('SMTP is not configured');
+  }
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM,
+    to,
+    subject: 'Verify your BloodBank email',
+    text: `Hi ${name || 'there'},\n\nPlease verify your email by opening this link:\n${verifyLink}\n\nIf you did not create this account, you can ignore this email.`,
+    html: `
+      <p>Hi ${name || 'there'},</p>
+      <p>Please verify your BloodBank email by clicking this link:</p>
+      <p><a href="${verifyLink}">${verifyLink}</a></p>
+      <p>If you did not create this account, you can ignore this email.</p>
+    `
+  });
 };
 
 const createIpRateLimiter = ({ windowMs, max, message }) => {
@@ -114,8 +308,14 @@ const authLimiter = createIpRateLimiter({
   max: parsePositiveInt(process.env.AUTH_RATE_LIMIT_MAX, 30),
   message: 'Too many authentication attempts. Please try again later.'
 });
+const passwordResetTtlMinutes = parsePositiveInt(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES, 30);
+const emailVerificationTtlHours = parsePositiveInt(process.env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS, 24);
 
 const geoColumnsState = {
+  checked: false,
+  available: false
+};
+const emailVerifiedColumnState = {
   checked: false,
   available: false
 };
@@ -126,9 +326,15 @@ const hasUserGeoColumns = async () => {
   }
 
   try {
-    const [latitudeColumn] = await pool.query(`SHOW COLUMNS FROM users LIKE 'latitude'`);
-    const [longitudeColumn] = await pool.query(`SHOW COLUMNS FROM users LIKE 'longitude'`);
-    geoColumnsState.available = latitudeColumn.length > 0 && longitudeColumn.length > 0;
+    const [columns] = await pool.execute(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'users'
+         AND column_name IN ('latitude', 'longitude')`
+    );
+    const columnNames = new Set(columns.map(column => column.column_name));
+    geoColumnsState.available = columnNames.has('latitude') && columnNames.has('longitude');
   } catch (error) {
     geoColumnsState.available = false;
   } finally {
@@ -136,6 +342,52 @@ const hasUserGeoColumns = async () => {
   }
 
   return geoColumnsState.available;
+};
+
+const hasEmailVerifiedColumn = async () => {
+  if (emailVerifiedColumnState.checked) {
+    return emailVerifiedColumnState.available;
+  }
+
+  try {
+    const [columns] = await pool.execute(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'users'
+         AND column_name = 'email_verified'`
+    );
+    emailVerifiedColumnState.available = columns.length > 0;
+  } catch (error) {
+    emailVerifiedColumnState.available = false;
+  } finally {
+    emailVerifiedColumnState.checked = true;
+  }
+
+  return emailVerifiedColumnState.available;
+};
+
+const createEmailVerificationToken = async ({ userId, email, name, req }) => {
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const expiresAt = new Date(Date.now() + emailVerificationTtlHours * 60 * 60 * 1000);
+
+  await pool.execute(
+    'UPDATE email_verification_tokens SET used_at = COALESCE(used_at, NOW()) WHERE user_id = ? AND used_at IS NULL',
+    [userId]
+  );
+
+  await pool.execute(
+    'INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
+    [userId, tokenHash, expiresAt]
+  );
+
+  const verifyLink = `${getAppBaseUrl(req)}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+  await sendEmailVerificationEmail({
+    to: email,
+    name,
+    verifyLink
+  });
 };
 
 // User Registration
@@ -151,19 +403,22 @@ router.post('/register', authLimiter, async (req, res) => {
       city = null,
       state = null,
       latitude = null,
-      longitude = null
+      longitude = null,
+      is_donor = true
     } = req.body;
 
     const normalizedName = normalizeString(name);
     const normalizedEmail = normalizeString(email).toLowerCase();
     const normalizedPassword = typeof password === 'string' ? password : '';
     const normalizedBloodGroup = normalizeString(blood_group).toUpperCase();
-    const normalizedPhone = optionalStringOrNull(phone);
+    const normalizedPhone = normalizePhoneDigits(phone);
     const normalizedLocation = optionalStringOrNull(location);
     const normalizedCity = optionalStringOrNull(city);
     const normalizedState = optionalStringOrNull(state);
     const parsedLatitude = parseLatitude(latitude, false);
     const parsedLongitude = parseLongitude(longitude, false);
+    const parsedIsDonor = normalizeBoolean(is_donor);
+    const normalizedIsDonor = parsedIsDonor === undefined ? true : parsedIsDonor;
 
     if (parsedLatitude.error || parsedLongitude.error) {
       return res.status(400).json({
@@ -186,6 +441,20 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
+    if (isDisposableEmailDomain(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Disposable email addresses are not allowed. Please use a real email address.'
+      });
+    }
+
+    if (!isValidPhone(normalizedPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number must be exactly 10 digits'
+      });
+    }
+
     if (normalizedPassword.length < 8) {
       return res.status(400).json({
         success: false,
@@ -197,6 +466,13 @@ router.post('/register', authLimiter, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid blood group'
+      });
+    }
+
+    if (is_donor !== undefined && parsedIsDonor === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'is_donor must be a boolean'
       });
     }
 
@@ -214,54 +490,74 @@ router.post('/register', authLimiter, async (req, res) => {
 
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(normalizedPassword, saltRounds);
-    const useGeoColumns = await hasUserGeoColumns();
+    const [useGeoColumns, useEmailVerifiedColumn] = await Promise.all([
+      hasUserGeoColumns(),
+      hasEmailVerifiedColumn()
+    ]);
 
-    let result;
+    const requiresEmailVerification = isMailConfigured() && useEmailVerifiedColumn;
+    const insertColumns = ['name', 'email', 'password', 'phone', 'blood_group', 'location', 'city', 'state'];
+    const insertValues = [
+      normalizedName,
+      normalizedEmail,
+      hashedPassword,
+      normalizedPhone,
+      normalizedBloodGroup,
+      normalizedLocation,
+      normalizedCity,
+      normalizedState
+    ];
+
     if (useGeoColumns) {
-      [result] = await pool.execute(
-        `INSERT INTO users (
-           name, email, password, phone, blood_group, location, city, state, latitude, longitude
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          normalizedName,
-          normalizedEmail,
-          hashedPassword,
-          normalizedPhone,
-          normalizedBloodGroup,
-          normalizedLocation,
-          normalizedCity,
-          normalizedState,
-          parsedLatitude.value,
-          parsedLongitude.value
-        ]
-      );
-    } else {
-      [result] = await pool.execute(
-        `INSERT INTO users (
-           name, email, password, phone, blood_group, location, city, state
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          normalizedName,
-          normalizedEmail,
-          hashedPassword,
-          normalizedPhone,
-          normalizedBloodGroup,
-          normalizedLocation,
-          normalizedCity,
-          normalizedState
-        ]
-      );
+      insertColumns.push('latitude', 'longitude');
+      insertValues.push(parsedLatitude.value, parsedLongitude.value);
+    }
+
+    insertColumns.push('is_donor');
+    insertValues.push(normalizedIsDonor);
+
+    if (useEmailVerifiedColumn) {
+      insertColumns.push('email_verified');
+      insertValues.push(!requiresEmailVerification);
+    }
+
+    const placeholders = insertColumns.map(() => '?').join(', ');
+    const [result] = await pool.execute(
+      `INSERT INTO users (${insertColumns.join(', ')})
+       VALUES (${placeholders})
+       RETURNING id`,
+      insertValues
+    );
+
+    if (requiresEmailVerification) {
+      try {
+        await createEmailVerificationToken({
+          userId: result.insertId,
+          email: normalizedEmail,
+          name: normalizedName,
+          req
+        });
+      } catch (verificationError) {
+        await pool.execute('DELETE FROM email_verification_tokens WHERE user_id = ?', [result.insertId]);
+        await pool.execute('DELETE FROM users WHERE id = ?', [result.insertId]);
+        throw verificationError;
+      }
     }
 
     return res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: requiresEmailVerification
+        ? 'User registered successfully. Please verify your email before login.'
+        : 'User registered successfully',
+      requires_verification: requiresEmailVerification,
       user: {
         id: result.insertId,
         name: normalizedName,
         email: normalizedEmail,
         blood_group: normalizedBloodGroup,
         location: normalizedLocation,
+        is_donor: normalizedIsDonor,
+        email_verified: !requiresEmailVerification,
         latitude: useGeoColumns ? parsedLatitude.value : null,
         longitude: useGeoColumns ? parsedLongitude.value : null
       }
@@ -295,10 +591,14 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
-    const useGeoColumns = await hasUserGeoColumns();
+    const [useGeoColumns, useEmailVerifiedColumn] = await Promise.all([
+      hasUserGeoColumns(),
+      hasEmailVerifiedColumn()
+    ]);
     const [users] = await pool.execute(
       `SELECT id, name, email, password, phone, blood_group, location, city, state,
               ${useGeoColumns ? 'latitude, longitude' : 'NULL as latitude, NULL as longitude'},
+              ${useEmailVerifiedColumn ? 'email_verified' : 'TRUE as email_verified'},
               is_donor, is_recipient, last_donation_date, created_at, updated_at
        FROM users
        WHERE email = ?`,
@@ -321,6 +621,14 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
+    if (useEmailVerifiedColumn && !user.email_verified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Please verify your email before login. Check your inbox for the verification link.',
+        requires_verification: true
+      });
+    }
+
     const { password: _password, ...safeUser } = user;
 
     return res.json({
@@ -334,6 +642,282 @@ router.post('/login', authLimiter, async (req, res) => {
       success: false,
       message: 'Internal server error'
     });
+  }
+});
+
+// Resend email verification
+router.post('/resend-verification', authLimiter, async (req, res) => {
+  try {
+    const normalizedEmail = normalizeString(req.body.email).toLowerCase();
+    if (!normalizedEmail || !EMAIL_REGEX.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    if (!isMailConfigured()) {
+      return res.status(503).json({
+        success: false,
+        message: 'Email service is not configured. Please contact support.'
+      });
+    }
+
+    const useEmailVerifiedColumn = await hasEmailVerifiedColumn();
+    if (!useEmailVerifiedColumn) {
+      return res.status(503).json({
+        success: false,
+        message: 'Email verification is not enabled yet. Run `npm run setup`.'
+      });
+    }
+
+    const genericSuccessMessage = 'If an account exists for this email, a verification link has been sent.';
+    const [users] = await pool.execute(
+      'SELECT id, name, email, email_verified FROM users WHERE email = ?',
+      [normalizedEmail]
+    );
+
+    if (users.length === 0) {
+      return res.json({
+        success: true,
+        message: genericSuccessMessage
+      });
+    }
+
+    const user = users[0];
+    if (user.email_verified) {
+      return res.json({
+        success: true,
+        message: 'Email is already verified. You can login.'
+      });
+    }
+
+    await createEmailVerificationToken({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      req
+    });
+
+    return res.json({
+      success: true,
+      message: genericSuccessMessage
+    });
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to resend verification email'
+    });
+  }
+});
+
+// Verify email by token
+router.get('/verify-email', async (req, res) => {
+  let connection;
+  try {
+    const token = normalizeString(req.query.token).replace(/\s+/g, '');
+    if (!token) {
+      return res.redirect('/login?verified=failed');
+    }
+
+    const useEmailVerifiedColumn = await hasEmailVerifiedColumn();
+    if (!useEmailVerifiedColumn) {
+      return res.redirect('/login?verified=failed');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const [tokens] = await connection.execute(
+      `SELECT id, user_id
+       FROM email_verification_tokens
+       WHERE token_hash = ?
+         AND used_at IS NULL
+         AND expires_at > NOW()
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [tokenHash]
+    );
+
+    if (tokens.length === 0) {
+      await connection.rollback();
+      return res.redirect('/login?verified=failed');
+    }
+
+    const tokenRecord = tokens[0];
+    await connection.execute(
+      'UPDATE users SET email_verified = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [tokenRecord.user_id]
+    );
+    await connection.execute(
+      'UPDATE email_verification_tokens SET used_at = NOW() WHERE id = ?',
+      [tokenRecord.id]
+    );
+    await connection.execute(
+      'UPDATE email_verification_tokens SET used_at = COALESCE(used_at, NOW()) WHERE user_id = ? AND id <> ?',
+      [tokenRecord.user_id, tokenRecord.id]
+    );
+
+    await connection.commit();
+    return res.redirect('/login?verified=1');
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+    console.error('Verify email error:', error);
+    return res.redirect('/login?verified=failed');
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// Forgot Password
+router.post('/forgot-password', authLimiter, async (req, res) => {
+  try {
+    const normalizedEmail = normalizeString(req.body.email).toLowerCase();
+    if (!normalizedEmail || !EMAIL_REGEX.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    if (!isMailConfigured()) {
+      return res.status(503).json({
+        success: false,
+        message: 'Password reset email service is not configured. Please contact support.'
+      });
+    }
+
+    const genericSuccessMessage = 'If an account exists for this email, a password reset link has been sent.';
+
+    const [users] = await pool.execute(
+      'SELECT id, name, email FROM users WHERE email = ?',
+      [normalizedEmail]
+    );
+
+    if (users.length === 0) {
+      return res.json({
+        success: true,
+        message: genericSuccessMessage
+      });
+    }
+
+    const user = users[0];
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + passwordResetTtlMinutes * 60 * 1000);
+
+    await pool.execute(
+      'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
+      [user.id, tokenHash, expiresAt]
+    );
+
+    const resetLink = `${getAppBaseUrl(req)}/reset-password?token=${encodeURIComponent(token)}`;
+    await sendPasswordResetEmail({
+      to: user.email,
+      name: user.name,
+      resetLink
+    });
+
+    return res.json({
+      success: true,
+      message: genericSuccessMessage
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to process password reset request'
+    });
+  }
+});
+
+// Reset Password
+router.post('/reset-password', authLimiter, async (req, res) => {
+  let connection;
+  try {
+    const token = normalizeString(req.body.token).replace(/\s+/g, '');
+    const newPassword = typeof req.body.new_password === 'string' ? req.body.new_password : '';
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token and new password are required'
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters long'
+      });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [tokens] = await pool.execute(
+      `SELECT id, user_id
+       FROM password_reset_tokens
+       WHERE token_hash = ?
+         AND used_at IS NULL
+         AND expires_at > NOW()
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [tokenHash]
+    );
+
+    if (tokens.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset token is invalid or expired'
+      });
+    }
+
+    const tokenRecord = tokens[0];
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    await connection.execute(
+      'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [hashedPassword, tokenRecord.user_id]
+    );
+
+    await connection.execute(
+      'UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?',
+      [tokenRecord.id]
+    );
+
+    await connection.execute(
+      'UPDATE password_reset_tokens SET used_at = COALESCE(used_at, NOW()) WHERE user_id = ? AND id <> ?',
+      [tokenRecord.user_id, tokenRecord.id]
+    );
+
+    await connection.commit();
+
+    return res.json({
+      success: true,
+      message: 'Password reset successful. Please login with your new password.'
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+    console.error('Reset password error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset password'
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
@@ -437,7 +1021,7 @@ router.put('/profile/:id', async (req, res) => {
 
     const normalizedUpdates = {
       name: optionalUpdateString(name),
-      phone: optionalUpdateString(phone),
+      phone: normalizePhoneDigitsUpdate(phone),
       location: optionalUpdateString(location),
       city: optionalUpdateString(city),
       state: optionalUpdateString(state),
@@ -446,6 +1030,13 @@ router.put('/profile/:id', async (req, res) => {
       is_donor: parsedIsDonor,
       is_recipient: parsedIsRecipient
     };
+
+    if (normalizedUpdates.phone !== undefined && !isValidPhone(normalizedUpdates.phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number must be exactly 10 digits'
+      });
+    }
 
     const hasAnyUpdate = Object.values(normalizedUpdates).some(value => value !== undefined);
     if (!hasAnyUpdate) {

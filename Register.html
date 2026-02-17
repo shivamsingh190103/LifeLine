@@ -4,52 +4,101 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href='Register.css'>
-    <link rel="icon" href='./Images/bb_logo(black).png' type="image/png">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"/>
+    <title>Create Account - BloodBank</title>
+    <link rel="stylesheet" href="Register.css">
+    <link rel="icon" href="./Images/bb_logo(black).png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
 </head>
-<title>Start Saving Lives </title>
 <body>
 <header>
     <nav>
-    <div class="header-logo"><img src="./Images/bb_logo(black).png"></div>
-    <div class="header-list">
-        <ul>
-            <li><a href="/help">Get Help</a></li>
-            <li><a href="/donate">Donate</a></li>
-            <li><a href="/#vol-sect">Volunteer</a></li>
-            <li><a href="/#about-us">About Us</a></li>
-            <li><a href="/login">Login</a></li>
+        <div class="header-logo">
+            <img src="./Images/bb_logo(black).png" alt="BloodBank Logo">
+        </div>
+        <div class="header-list">
+            <ul>
+                <li><a href="/help">Get Help</a></li>
+                <li><a href="/donate">Donate</a></li>
+                <li><a href="/#vol-sect">Volunteer</a></li>
+                <li><a href="/#about-us">About Us</a></li>
+                <li><a href="/login">Login</a></li>
             </ul>
-    </div>
+        </div>
     </nav>
 </header>
 
-<div class="inner">
-    <div class="photo">
-        <img src="./Images/regphoto.png">
-    </div>
-    <div class="user-form">
-        <h1>Start Saving Lives</h1>
-        <form id="registrationForm">
-            <i class="fas fa-user icon"></i>
-            <input type="text" name="name" placeholder="Name" required>
-            <br>
-            <i class="fas fa-envelope-square"></i>
-            <input type="email" name="email" placeholder="E-mail" required>
-            <br>
-            <i class="fas fa-lock"></i>
-            <input type="password" name="password" placeholder="Password" id="password_data" required>
-            <div class="safety" style="font-family: sans-serif; font-size: 20px;">
-                Enter Password
-            </div>
-            <div class="action-btn">
-                <button class="btn primary">Create Account</button>
-                <button class="btn">Skip</button>
-            </div>
-        </form>
-    </div>
-</div>
+<main class="register-main">
+    <section class="register-shell">
+        <div class="photo-panel">
+            <h2>Save Lives</h2>
+            <p>Join our donor network and respond faster during emergencies.</p>
+            <img src="./Images/regphoto.png" alt="Blood donation illustration">
+        </div>
+
+        <div class="form-panel">
+            <h1>Start Saving Lives</h1>
+            <p class="subtitle">Create a donor account with verified contact details.</p>
+
+            <form id="registrationForm" class="registration-form" novalidate>
+                <div class="input-with-icon">
+                    <i class="fas fa-user form-icon"></i>
+                    <input type="text" name="name" placeholder="Full Name" autocomplete="name" required>
+                </div>
+
+                <div class="input-with-icon">
+                    <i class="fas fa-envelope form-icon"></i>
+                    <input type="email" name="email" placeholder="Email Address" autocomplete="email" required>
+                </div>
+
+                <div class="input-with-icon">
+                    <i class="fas fa-tint form-icon"></i>
+                    <select name="blood_group" required>
+                        <option value="" disabled selected>Select Blood Group</option>
+                        <option value="A+">A+</option>
+                        <option value="A-">A-</option>
+                        <option value="B+">B+</option>
+                        <option value="B-">B-</option>
+                        <option value="AB+">AB+</option>
+                        <option value="AB-">AB-</option>
+                        <option value="O+">O+</option>
+                        <option value="O-">O-</option>
+                    </select>
+                </div>
+
+                <div class="input-with-icon">
+                    <i class="fas fa-phone-alt form-icon"></i>
+                    <input type="tel" name="phone" placeholder="Phone Number (10 digits)" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required>
+                </div>
+
+                <div class="input-with-icon">
+                    <i class="fas fa-map-marker-alt form-icon"></i>
+                    <input type="text" name="location" placeholder="Address" autocomplete="street-address" required>
+                </div>
+
+                <div class="row-two">
+                    <input type="text" name="city" placeholder="City" autocomplete="address-level2" required>
+                    <input type="text" name="state" placeholder="State" autocomplete="address-level1" required>
+                </div>
+
+                <div class="input-with-icon">
+                    <i class="fas fa-lock form-icon"></i>
+                    <input type="password" name="password" placeholder="Password" id="password_data" autocomplete="new-password" required>
+                </div>
+
+                <input type="hidden" name="latitude">
+                <input type="hidden" name="longitude">
+
+                <div class="safety">Enter Password</div>
+
+                <div class="action-btn">
+                    <button class="btn primary" type="submit">Create Account</button>
+                    <button class="btn" type="button" id="skipRegistrationBtn">Skip</button>
+                </div>
+            </form>
+        </div>
+    </section>
+</main>
+
 <script src="./Register.js"></script>
 </body>
 </html>
