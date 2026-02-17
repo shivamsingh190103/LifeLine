@@ -114,10 +114,16 @@ app.get('/api', (req, res) => {
         'POST /api/auth/forgot-password': 'Send password reset link',
         'POST /api/auth/reset-password': 'Reset password using token',
         'GET /api/auth/profile/:id': 'Get user profile',
-        'PUT /api/auth/profile/:id': 'Update user profile'
+        'PUT /api/auth/profile/:id': 'Update user profile',
+        'DELETE /api/auth/profile/:id': 'Soft/hard delete profile',
+        'GET /api/auth/authorities/pending': 'List pending hospital/blood bank/doctor accounts (admin key required)',
+        'PUT /api/auth/authorities/:id/verify': 'Approve/reject authority account (admin key required)'
       },
       bloodRequests: {
         'POST /api/blood-requests/create': 'Create a new blood request',
+        'GET /api/blood-requests/pending-verification': 'List pending high/emergency verification queue (verified authority)',
+        'POST /api/blood-requests/:id/verify-broadcast': 'Verify/reject high/emergency request and trigger broadcast',
+        'POST /api/blood-requests/:id/call-link': 'Generate private free Jitsi call link for request participants',
         'GET /api/blood-requests/all': 'Get all blood requests',
         'GET /api/blood-requests/by-blood-group/:bloodGroup': 'Get requests by blood group',
         'GET /api/blood-requests/by-location': 'Get requests by location',
@@ -129,6 +135,7 @@ app.get('/api', (req, res) => {
       donations: {
         'POST /api/donations/schedule': 'Schedule a blood donation',
         'PUT /api/donations/:id/complete': 'Complete a donation',
+        'POST /api/donations/complete-by-token': 'Complete donation using QR token (verified authority flow)',
         'GET /api/donations/all': 'Get all donations',
         'GET /api/donations/donor/:donorId': 'Get donations by donor',
         'GET /api/donations/by-blood-group/:bloodGroup': 'Get donations by blood group',
@@ -147,15 +154,15 @@ app.get('/api', (req, res) => {
         'DELETE /api/contact/:id': 'Delete message'
       },
       inventory: {
-        'GET /api/inventory/all': 'Get blood inventory',
-        'GET /api/inventory/blood-group/:bloodGroup': 'Get inventory by blood group',
-        'PUT /api/inventory/update': 'Update inventory',
-        'POST /api/inventory/add': 'Add blood units',
-        'POST /api/inventory/reserve': 'Reserve blood units',
-        'POST /api/inventory/release': 'Release reserved units',
-        'GET /api/inventory/low-stock': 'Get low stock alerts',
-        'GET /api/inventory/statistics': 'Get inventory statistics',
-        'POST /api/inventory/initialize': 'Initialize blood group'
+        'GET /api/inventory/all': 'Get blood inventory (global or hospital-scoped)',
+        'GET /api/inventory/blood-group/:bloodGroup': 'Get inventory by blood group (global or hospital-scoped)',
+        'PUT /api/inventory/update': 'Update inventory (verified authority)',
+        'POST /api/inventory/add': 'Add blood units (verified authority)',
+        'POST /api/inventory/reserve': 'Reserve blood units (verified authority)',
+        'POST /api/inventory/release': 'Release reserved units (verified authority)',
+        'GET /api/inventory/low-stock': 'Get low stock alerts (global or hospital-scoped)',
+        'GET /api/inventory/statistics': 'Get inventory statistics (global or hospital-scoped)',
+        'POST /api/inventory/initialize': 'Initialize blood group (verified authority)'
       },
       matching: {
         'GET /api/matching/nearby-donors': 'Match eligible donors by location and blood group',
@@ -172,7 +179,9 @@ app.get('/api', (req, res) => {
       alerts: {
         'GET /api/alerts/stream': 'Open live emergency alert stream (SSE)',
         'GET /api/alerts/recent': 'Get recent nearby emergency alerts (fallback/polling)',
-        'GET /api/alerts/stats': 'Get active stream connections'
+        'GET /api/alerts/stats': 'Get active stream connections',
+        'GET /api/alerts/notifications/:userId': 'Get persistent user notifications',
+        'PUT /api/alerts/notifications/:notificationId/read': 'Mark user notification as read'
       }
     }
   });

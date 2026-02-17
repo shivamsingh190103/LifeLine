@@ -4,6 +4,13 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const { pool } = require('../config/database');
 const { parseLatitude, parseLongitude } = require('../services/geo');
+const {
+  ROLES,
+  AUTHORITY_ROLES,
+  normalizeRole,
+  resolveActorUser,
+  parsePositiveInt
+} = require('../services/accessControl');
 
 const router = express.Router();
 
@@ -23,7 +30,7 @@ const DEFAULT_DISPOSABLE_EMAIL_DOMAINS = new Set([
   'getnada.com'
 ]);
 
-const parsePositiveInt = (value, fallback = null) => {
+const parsePositiveIntOrFallback = (value, fallback = null) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
@@ -40,6 +47,23 @@ const parseBooleanEnv = value => {
 
   const normalized = String(value).trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+};
+
+const parseOptionalDateTime = value => {
+  if (value === undefined) {
+    return { value: undefined, error: null };
+  }
+
+  if (value === null || value === '') {
+    return { value: null, error: null };
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return { value: null, error: 'alert_snooze_until must be a valid ISO date-time' };
+  }
+
+  return { value: parsed.toISOString(), error: null };
 };
 
 const normalizePhoneDigits = value => {
@@ -135,6 +159,16 @@ const getAppBaseUrl = req => {
   }
 
   return configuredBaseUrl;
+};
+
+const hasValidAdminKey = req => {
+  const configuredAdminKey = getEnvString('ADMIN_API_KEY');
+  if (!configuredAdminKey) {
+    return false;
+  }
+
+  const providedAdminKey = normalizeString(req.headers['x-admin-key'] || (req.body && req.body.admin_key));
+  return Boolean(providedAdminKey) && providedAdminKey === configuredAdminKey;
 };
 
 let emailTransporter = null;
@@ -309,18 +343,22 @@ const parseOptionalCoordinateUpdate = (value, parser) => {
 };
 
 const authLimiter = createIpRateLimiter({
-  windowMs: parsePositiveInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
-  max: parsePositiveInt(process.env.AUTH_RATE_LIMIT_MAX, 30),
+  windowMs: parsePositiveIntOrFallback(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+  max: parsePositiveIntOrFallback(process.env.AUTH_RATE_LIMIT_MAX, 30),
   message: 'Too many authentication attempts. Please try again later.'
 });
-const passwordResetTtlMinutes = parsePositiveInt(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES, 30);
-const emailVerificationTtlHours = parsePositiveInt(process.env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS, 24);
+const passwordResetTtlMinutes = parsePositiveIntOrFallback(process.env.PASSWORD_RESET_TOKEN_TTL_MINUTES, 30);
+const emailVerificationTtlHours = parsePositiveIntOrFallback(process.env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS, 24);
 
 const geoColumnsState = {
   checked: false,
   available: false
 };
 const emailVerifiedColumnState = {
+  checked: false,
+  available: false
+};
+const authorityColumnsState = {
   checked: false,
   available: false
 };
@@ -372,6 +410,31 @@ const hasEmailVerifiedColumn = async () => {
   return emailVerifiedColumnState.available;
 };
 
+const hasAuthorityColumns = async () => {
+  if (authorityColumnsState.checked) {
+    return authorityColumnsState.available;
+  }
+
+  try {
+    const [columns] = await pool.execute(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'users'
+         AND column_name IN ('role', 'is_verified', 'license_number', 'facility_id', 'is_active', 'alert_snooze_until')`
+    );
+    const found = new Set(columns.map(column => column.column_name));
+    authorityColumnsState.available = ['role', 'is_verified', 'license_number', 'facility_id', 'is_active', 'alert_snooze_until']
+      .every(column => found.has(column));
+  } catch (error) {
+    authorityColumnsState.available = false;
+  } finally {
+    authorityColumnsState.checked = true;
+  }
+
+  return authorityColumnsState.available;
+};
+
 const createEmailVerificationToken = async ({ userId, email, name, req }) => {
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -409,13 +472,21 @@ router.post('/register', authLimiter, async (req, res) => {
       state = null,
       latitude = null,
       longitude = null,
-      is_donor = true
+      is_donor,
+      role = ROLES.USER,
+      license_number = null,
+      facility_id = null
     } = req.body;
 
     const normalizedName = normalizeString(name);
     const normalizedEmail = normalizeString(email).toLowerCase();
     const normalizedPassword = typeof password === 'string' ? password : '';
     const normalizedBloodGroup = normalizeString(blood_group).toUpperCase();
+    const normalizedRole = normalizeRole(role);
+    const normalizedLicenseNumber = optionalStringOrNull(license_number);
+    const normalizedFacilityId = facility_id === undefined || facility_id === null || facility_id === ''
+      ? null
+      : parsePositiveInt(facility_id);
     const normalizedPhone = normalizePhoneDigits(phone);
     const normalizedLocation = optionalStringOrNull(location);
     const normalizedCity = optionalStringOrNull(city);
@@ -423,7 +494,9 @@ router.post('/register', authLimiter, async (req, res) => {
     const parsedLatitude = parseLatitude(latitude, false);
     const parsedLongitude = parseLongitude(longitude, false);
     const parsedIsDonor = normalizeBoolean(is_donor);
-    const normalizedIsDonor = parsedIsDonor === undefined ? true : parsedIsDonor;
+    const roleDefaultsToDonor = normalizedRole === ROLES.USER || normalizedRole === ROLES.DOCTOR;
+    const normalizedIsDonor = parsedIsDonor === undefined ? roleDefaultsToDonor : parsedIsDonor;
+    const requiresAuthorityVerification = AUTHORITY_ROLES.has(normalizedRole) && normalizedRole !== ROLES.ADMIN;
 
     if (parsedLatitude.error || parsedLongitude.error) {
       return res.status(400).json({
@@ -481,6 +554,27 @@ router.post('/register', authLimiter, async (req, res) => {
       });
     }
 
+    if (AUTHORITY_ROLES.has(normalizedRole) && normalizedRole !== ROLES.ADMIN && !normalizedLicenseNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'license_number is required for hospital, blood bank, and doctor accounts'
+      });
+    }
+
+    if (normalizedRole === ROLES.ADMIN) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin accounts cannot be self-registered'
+      });
+    }
+
+    if (facility_id !== undefined && normalizedFacilityId === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'facility_id must be a valid positive integer when provided'
+      });
+    }
+
     const [existingUsers] = await pool.execute(
       'SELECT id FROM users WHERE email = ?',
       [normalizedEmail]
@@ -495,12 +589,20 @@ router.post('/register', authLimiter, async (req, res) => {
 
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(normalizedPassword, saltRounds);
-    const [useGeoColumns, useEmailVerifiedColumn] = await Promise.all([
+    const [useGeoColumns, useEmailVerifiedColumn, useAuthorityColumns] = await Promise.all([
       hasUserGeoColumns(),
-      hasEmailVerifiedColumn()
+      hasEmailVerifiedColumn(),
+      hasAuthorityColumns()
     ]);
 
     const requiresEmailVerification = isMailConfigured() && useEmailVerifiedColumn;
+    if (!useAuthorityColumns && normalizedRole !== ROLES.USER) {
+      return res.status(503).json({
+        success: false,
+        message: 'Authority registration is not enabled yet. Run `npm run setup` first.'
+      });
+    }
+
     const insertColumns = ['name', 'email', 'password', 'phone', 'blood_group', 'location', 'city', 'state'];
     const insertValues = [
       normalizedName,
@@ -512,6 +614,17 @@ router.post('/register', authLimiter, async (req, res) => {
       normalizedCity,
       normalizedState
     ];
+
+    if (useAuthorityColumns) {
+      insertColumns.push('role', 'is_verified', 'license_number', 'facility_id', 'is_active');
+      insertValues.push(
+        normalizedRole,
+        requiresAuthorityVerification ? false : true,
+        normalizedLicenseNumber,
+        normalizedFacilityId,
+        true
+      );
+    }
 
     if (useGeoColumns) {
       insertColumns.push('latitude', 'longitude');
@@ -551,15 +664,24 @@ router.post('/register', authLimiter, async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: requiresEmailVerification
-        ? 'User registered successfully. Please verify your email before login.'
-        : 'User registered successfully',
+      message: requiresAuthorityVerification && requiresEmailVerification
+        ? 'Account created. Verify email first, then wait for authority approval.'
+        : requiresAuthorityVerification
+          ? 'Authority account created. Wait for admin verification before login.'
+          : requiresEmailVerification
+            ? 'User registered successfully. Please verify your email before login.'
+            : 'User registered successfully',
       requires_verification: requiresEmailVerification,
+      authority_verification_pending: requiresAuthorityVerification,
       user: {
         id: result.insertId,
         name: normalizedName,
         email: normalizedEmail,
         blood_group: normalizedBloodGroup,
+        role: useAuthorityColumns ? normalizedRole : ROLES.USER,
+        is_verified: useAuthorityColumns ? !requiresAuthorityVerification : true,
+        license_number: useAuthorityColumns ? normalizedLicenseNumber : null,
+        facility_id: useAuthorityColumns ? normalizedFacilityId : null,
         location: normalizedLocation,
         is_donor: normalizedIsDonor,
         email_verified: !requiresEmailVerification,
@@ -596,14 +718,18 @@ router.post('/login', authLimiter, async (req, res) => {
       });
     }
 
-    const [useGeoColumns, useEmailVerifiedColumn] = await Promise.all([
+    const [useGeoColumns, useEmailVerifiedColumn, useAuthorityColumns] = await Promise.all([
       hasUserGeoColumns(),
-      hasEmailVerifiedColumn()
+      hasEmailVerifiedColumn(),
+      hasAuthorityColumns()
     ]);
     const [users] = await pool.execute(
       `SELECT id, name, email, password, phone, blood_group, location, city, state,
               ${useGeoColumns ? 'latitude, longitude' : 'NULL as latitude, NULL as longitude'},
               ${useEmailVerifiedColumn ? 'email_verified' : 'TRUE as email_verified'},
+              ${useAuthorityColumns
+    ? 'role, is_verified, license_number, facility_id, is_active, alert_snooze_until'
+    : `'user' AS role, TRUE AS is_verified, NULL::VARCHAR AS license_number, NULL::BIGINT AS facility_id, TRUE AS is_active, NULL::TIMESTAMPTZ AS alert_snooze_until`},
               is_donor, is_recipient, last_donation_date, created_at, updated_at
        FROM users
        WHERE email = ?`,
@@ -631,6 +757,22 @@ router.post('/login', authLimiter, async (req, res) => {
         success: false,
         message: 'Please verify your email before login. Check your inbox for the verification link.',
         requires_verification: true
+      });
+    }
+
+    if (user.is_active === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account is deactivated. Please contact support.'
+      });
+    }
+
+    const normalizedUserRole = normalizeRole(user.role);
+    if (useAuthorityColumns && AUTHORITY_ROLES.has(normalizedUserRole) && normalizedUserRole !== ROLES.ADMIN && !user.is_verified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your authority account is pending admin verification.',
+        authority_verification_pending: true
       });
     }
 
@@ -937,10 +1079,16 @@ router.get('/profile/:id', async (req, res) => {
       });
     }
 
-    const useGeoColumns = await hasUserGeoColumns();
+    const [useGeoColumns, useAuthorityColumns] = await Promise.all([
+      hasUserGeoColumns(),
+      hasAuthorityColumns()
+    ]);
     const [users] = await pool.execute(
       `SELECT id, name, email, phone, blood_group, location, city, state,
               ${useGeoColumns ? 'latitude, longitude' : 'NULL as latitude, NULL as longitude'},
+              ${useAuthorityColumns
+    ? 'role, is_verified, license_number, facility_id, is_active, alert_snooze_until'
+    : `'user' AS role, TRUE AS is_verified, NULL::VARCHAR AS license_number, NULL::BIGINT AS facility_id, TRUE AS is_active, NULL::TIMESTAMPTZ AS alert_snooze_until`},
               is_donor, is_recipient, last_donation_date, created_at
        FROM users WHERE id = ?`,
       [userId]
@@ -986,20 +1134,25 @@ router.put('/profile/:id', async (req, res) => {
       latitude,
       longitude,
       is_donor,
-      is_recipient
+      is_recipient,
+      alert_snooze_until
     } = req.body;
 
-    const useGeoColumns = await hasUserGeoColumns();
+    const [useGeoColumns, useAuthorityColumns] = await Promise.all([
+      hasUserGeoColumns(),
+      hasAuthorityColumns()
+    ]);
 
     const parsedIsDonor = normalizeBoolean(is_donor);
     const parsedIsRecipient = normalizeBoolean(is_recipient);
+    const parsedAlertSnoozeUntil = parseOptionalDateTime(alert_snooze_until);
     const parsedLatitude = parseOptionalCoordinateUpdate(latitude, parseLatitude);
     const parsedLongitude = parseOptionalCoordinateUpdate(longitude, parseLongitude);
 
-    if (parsedLatitude.error || parsedLongitude.error) {
+    if (parsedLatitude.error || parsedLongitude.error || parsedAlertSnoozeUntil.error) {
       return res.status(400).json({
         success: false,
-        message: parsedLatitude.error || parsedLongitude.error
+        message: parsedLatitude.error || parsedLongitude.error || parsedAlertSnoozeUntil.error
       });
     }
 
@@ -1033,7 +1186,8 @@ router.put('/profile/:id', async (req, res) => {
       latitude: parsedLatitude.value,
       longitude: parsedLongitude.value,
       is_donor: parsedIsDonor,
-      is_recipient: parsedIsRecipient
+      is_recipient: parsedIsRecipient,
+      alert_snooze_until: parsedAlertSnoozeUntil.value
     };
 
     if (normalizedUpdates.phone !== undefined && !isValidPhone(normalizedUpdates.phone)) {
@@ -1064,6 +1218,7 @@ router.put('/profile/:id', async (req, res) => {
            longitude = COALESCE(?, longitude),
            is_donor = COALESCE(?, is_donor),
            is_recipient = COALESCE(?, is_recipient),
+           ${useAuthorityColumns ? 'alert_snooze_until = CASE WHEN ? THEN ? ELSE alert_snooze_until END,' : ''}
            updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
@@ -1076,6 +1231,10 @@ router.put('/profile/:id', async (req, res) => {
           normalizedUpdates.longitude ?? null,
           normalizedUpdates.is_donor === undefined ? null : normalizedUpdates.is_donor,
           normalizedUpdates.is_recipient === undefined ? null : normalizedUpdates.is_recipient,
+          ...(useAuthorityColumns ? [
+            normalizedUpdates.alert_snooze_until !== undefined,
+            normalizedUpdates.alert_snooze_until ?? null
+          ] : []),
           userId
         ]
       );
@@ -1089,6 +1248,7 @@ router.put('/profile/:id', async (req, res) => {
            state = COALESCE(?, state),
            is_donor = COALESCE(?, is_donor),
            is_recipient = COALESCE(?, is_recipient),
+           ${useAuthorityColumns ? 'alert_snooze_until = CASE WHEN ? THEN ? ELSE alert_snooze_until END,' : ''}
            updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
@@ -1099,6 +1259,10 @@ router.put('/profile/:id', async (req, res) => {
           normalizedUpdates.state ?? null,
           normalizedUpdates.is_donor === undefined ? null : normalizedUpdates.is_donor,
           normalizedUpdates.is_recipient === undefined ? null : normalizedUpdates.is_recipient,
+          ...(useAuthorityColumns ? [
+            normalizedUpdates.alert_snooze_until !== undefined,
+            normalizedUpdates.alert_snooze_until ?? null
+          ] : []),
           userId
         ]
       );
@@ -1124,13 +1288,219 @@ router.put('/profile/:id', async (req, res) => {
   }
 });
 
+// Soft-delete or hard-delete profile
+router.delete('/profile/:id', async (req, res) => {
+  let connection;
+  try {
+    const userId = parsePositiveInt(req.params.id);
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    const actor = await resolveActorUser(req, { required: true });
+    if (actor.message) {
+      return res.status(actor.status).json({
+        success: false,
+        message: actor.message
+      });
+    }
+
+    const actorRole = normalizeRole(actor.user.role);
+    const canDelete = actor.user.id === userId || actorRole === ROLES.ADMIN;
+    if (!canDelete) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only delete your own profile'
+      });
+    }
+
+    const hardDelete = req.body && normalizeBoolean(req.body.hard_delete) === true;
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    if (hardDelete) {
+      await connection.execute('DELETE FROM users WHERE id = ?', [userId]);
+      await connection.commit();
+      return res.json({
+        success: true,
+        message: 'Profile permanently deleted'
+      });
+    }
+
+    const deletedEmail = `deleted+${userId}@lifeline.local`;
+    const [result] = await connection.execute(
+      `UPDATE users SET
+         name = 'Deleted User',
+         email = ?,
+         phone = NULL,
+         location = NULL,
+         city = NULL,
+         state = NULL,
+         latitude = NULL,
+         longitude = NULL,
+         password = 'deleted',
+         is_active = FALSE,
+         is_donor = FALSE,
+         is_recipient = FALSE,
+         role = 'user',
+         is_verified = FALSE,
+         license_number = NULL,
+         facility_id = NULL,
+         alert_snooze_until = NULL,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [deletedEmail, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    await connection.commit();
+    return res.json({
+      success: true,
+      message: 'Profile deleted successfully (soft delete)'
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+    console.error('Delete profile error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete profile'
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// List authority accounts pending approval
+router.get('/authorities/pending', async (req, res) => {
+  try {
+    const useAuthorityColumns = await hasAuthorityColumns();
+    if (!useAuthorityColumns) {
+      return res.status(503).json({
+        success: false,
+        message: 'Authority verification workflow is not enabled yet. Run `npm run setup`.'
+      });
+    }
+
+    if (!hasValidAdminKey(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin key required'
+      });
+    }
+
+    const [authorities] = await pool.execute(
+      `SELECT id, name, email, role, license_number, facility_id, city, state, created_at
+       FROM users
+       WHERE role IN ('hospital', 'blood_bank', 'doctor')
+         AND is_verified = FALSE
+         AND is_active = TRUE
+       ORDER BY created_at ASC`
+    );
+
+    return res.json({
+      success: true,
+      pending_authorities: authorities
+    });
+  } catch (error) {
+    console.error('List pending authorities error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load pending authority accounts'
+    });
+  }
+});
+
+// Verify or reject authority account
+router.put('/authorities/:id/verify', async (req, res) => {
+  try {
+    const useAuthorityColumns = await hasAuthorityColumns();
+    if (!useAuthorityColumns) {
+      return res.status(503).json({
+        success: false,
+        message: 'Authority verification workflow is not enabled yet. Run `npm run setup`.'
+      });
+    }
+
+    if (!hasValidAdminKey(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin key required'
+      });
+    }
+
+    const authorityId = parsePositiveInt(req.params.id);
+    if (!authorityId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid authority user ID'
+      });
+    }
+
+    const isVerified = normalizeBoolean(req.body && req.body.is_verified);
+    if (isVerified === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'is_verified must be a boolean'
+      });
+    }
+
+    const [result] = await pool.execute(
+      `UPDATE users
+       SET is_verified = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND role IN ('hospital', 'blood_bank', 'doctor')`,
+      [isVerified, authorityId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Authority account not found'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: isVerified
+        ? 'Authority account verified successfully'
+        : 'Authority account marked as unverified'
+    });
+  } catch (error) {
+    console.error('Verify authority error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update authority verification status'
+    });
+  }
+});
+
 // Get all users (for admin/dashboard purposes)
 router.get('/users', async (req, res) => {
   try {
-    const useGeoColumns = await hasUserGeoColumns();
+    const [useGeoColumns, useAuthorityColumns] = await Promise.all([
+      hasUserGeoColumns(),
+      hasAuthorityColumns()
+    ]);
     const [users] = await pool.execute(
       `SELECT id, name, email, blood_group, location, city, state,
               ${useGeoColumns ? 'latitude, longitude' : 'NULL as latitude, NULL as longitude'},
+              ${useAuthorityColumns
+    ? 'role, is_verified, license_number, facility_id, is_active, alert_snooze_until'
+    : `'user' AS role, TRUE AS is_verified, NULL::VARCHAR AS license_number, NULL::BIGINT AS facility_id, TRUE AS is_active, NULL::TIMESTAMPTZ AS alert_snooze_until`},
               is_donor, is_recipient, last_donation_date
        FROM users
        ORDER BY created_at DESC`

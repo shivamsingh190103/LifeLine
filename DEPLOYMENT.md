@@ -53,6 +53,8 @@ In `Project -> Settings -> Environment Variables`, add:
 - `CORS_ORIGIN` = `https://<your-vercel-domain>` (recommended)
 - `APP_BASE_URL` = `https://<your-vercel-domain>`
 - `EMAIL_VERIFICATION_TOKEN_TTL_HOURS` = `24` (optional)
+- `ADMIN_API_KEY` = strong random secret (required for authority approval endpoints)
+- `REQUIRE_AUTHORITY_FOR_DONATION_COMPLETION` = `false` (set `true` for strict hospital/doctor-only completion)
 
 For forgot-password, email-verification, and contact-form emails, also add SMTP variables:
 - `SMTP_HOST`

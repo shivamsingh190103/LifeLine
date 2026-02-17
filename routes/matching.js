@@ -19,6 +19,38 @@ const parsePositiveInt = (value, fallback) => {
 const normalizeBloodGroup = value => (typeof value === 'string' ? value.trim().toUpperCase() : '');
 const normalizeString = value => (typeof value === 'string' ? value.trim() : '');
 
+const requestVerificationColumnsState = {
+  checked: false,
+  available: false
+};
+
+const hasRequestVerificationColumns = async () => {
+  if (requestVerificationColumnsState.checked) {
+    return requestVerificationColumnsState.available;
+  }
+
+  try {
+    const [columns] = await pool.execute(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'blood_requests'
+         AND column_name IN ('verification_required', 'verification_status')`
+    );
+
+    const foundColumns = new Set(columns.map(column => column.column_name));
+    requestVerificationColumnsState.available =
+      foundColumns.has('verification_required') &&
+      foundColumns.has('verification_status');
+  } catch (error) {
+    requestVerificationColumnsState.available = false;
+  } finally {
+    requestVerificationColumnsState.checked = true;
+  }
+
+  return requestVerificationColumnsState.available;
+};
+
 router.get('/nearby-donors', async (req, res) => {
   try {
     const bloodGroup = normalizeBloodGroup(req.query.bloodGroup || req.query.blood_group);
@@ -220,6 +252,8 @@ router.get('/receivers-by-location', async (req, res) => {
       `%${locationQuery}%`
     ];
 
+    const useVerificationColumns = await hasRequestVerificationColumns();
+
     let query = `
       SELECT br.id, br.patient_name, br.blood_group, br.units_required, br.hospital_name, br.hospital_address,
              br.urgency_level, br.contact_person, br.contact_phone, br.required_date, br.status, br.created_at,
@@ -234,6 +268,10 @@ router.get('/receivers-by-location', async (req, res) => {
           OR COALESCE(u.city, '') ILIKE ?
           OR COALESCE(u.state, '') ILIKE ?)
     `;
+
+    if (useVerificationColumns) {
+      query += ` AND (br.verification_required = FALSE OR br.verification_status = 'Verified')`;
+    }
 
     if (bloodGroup) {
       query += ' AND br.blood_group = ?';

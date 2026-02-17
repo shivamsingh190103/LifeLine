@@ -7,6 +7,12 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(100) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
     email_verified BOOLEAN DEFAULT TRUE,
+    role VARCHAR(20) DEFAULT 'user' CHECK (role IN ('user', 'hospital', 'blood_bank', 'doctor', 'admin')),
+    is_verified BOOLEAN DEFAULT FALSE,
+    license_number VARCHAR(100),
+    facility_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    alert_snooze_until TIMESTAMPTZ,
     phone VARCHAR(20),
     blood_group VARCHAR(3) NOT NULL CHECK (blood_group IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-')),
     location VARCHAR(200),
@@ -55,6 +61,15 @@ CREATE TABLE IF NOT EXISTS blood_requests (
     contact_phone VARCHAR(20),
     reason TEXT,
     status VARCHAR(20) DEFAULT 'Pending' CHECK (status IN ('Pending', 'In Progress', 'Completed', 'Cancelled')),
+    verification_required BOOLEAN DEFAULT FALSE,
+    verification_status VARCHAR(30) DEFAULT 'Not Required'
+      CHECK (verification_status IN ('Not Required', 'Pending Verification', 'Verified', 'Rejected')),
+    requisition_image_url TEXT,
+    verified_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    verified_at TIMESTAMPTZ,
+    verification_notes TEXT,
+    call_room_url TEXT,
+    call_room_created_at TIMESTAMPTZ,
     required_date DATE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -70,6 +85,13 @@ CREATE TABLE IF NOT EXISTS blood_donations (
     units_donated INT DEFAULT 1 CHECK (units_donated > 0),
     donation_center VARCHAR(200),
     status VARCHAR(20) DEFAULT 'Scheduled' CHECK (status IN ('Scheduled', 'Completed', 'Cancelled')),
+    completion_verified BOOLEAN DEFAULT FALSE,
+    completed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    completion_verified_at TIMESTAMPTZ,
+    completion_method VARCHAR(30) DEFAULT 'self'
+      CHECK (completion_method IN ('self', 'hospital_scan', 'blood_bank_scan', 'doctor_verify', 'admin_verify')),
+    verification_qr_token VARCHAR(120) UNIQUE,
+    verification_qr_expires_at TIMESTAMPTZ,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -100,16 +122,108 @@ CREATE TABLE IF NOT EXISTS app_feedback (
 -- Blood inventory table
 CREATE TABLE IF NOT EXISTS blood_inventory (
     id BIGSERIAL PRIMARY KEY,
-    blood_group VARCHAR(3) NOT NULL UNIQUE CHECK (blood_group IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-')),
+    hospital_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    blood_group VARCHAR(3) NOT NULL CHECK (blood_group IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-')),
     available_units INT DEFAULT 0 CHECK (available_units >= 0),
     reserved_units INT DEFAULT 0 CHECK (reserved_units >= 0),
     last_updated TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Persistent in-app notifications (used for passive stock alerts / call links / workflow notices)
+CREATE TABLE IF NOT EXISTS user_notifications (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(150) NOT NULL,
+    message TEXT NOT NULL,
+    type VARCHAR(30) DEFAULT 'info' CHECK (type IN ('info', 'success', 'warning', 'error')),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    read_at TIMESTAMPTZ
 );
 
 -- Backward-compatible schema upgrades
 ALTER TABLE users ADD COLUMN IF NOT EXISTS latitude NUMERIC(10, 7);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS longitude NUMERIC(10, 7);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS license_number VARCHAR(100);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS facility_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS alert_snooze_until TIMESTAMPTZ;
+
+UPDATE users
+SET role = COALESCE(NULLIF(TRIM(role), ''), 'user')
+WHERE role IS NULL OR TRIM(role) = '';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'users_role_check'
+  ) THEN
+    ALTER TABLE users
+      ADD CONSTRAINT users_role_check
+      CHECK (role IN ('user', 'hospital', 'blood_bank', 'doctor', 'admin'));
+  END IF;
+END
+$$;
+
+ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS verification_required BOOLEAN DEFAULT FALSE;
+ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS verification_status VARCHAR(30) DEFAULT 'Not Required';
+ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS requisition_image_url TEXT;
+ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS verified_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS verification_notes TEXT;
+ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS call_room_url TEXT;
+ALTER TABLE blood_requests ADD COLUMN IF NOT EXISTS call_room_created_at TIMESTAMPTZ;
+
+UPDATE blood_requests
+SET verification_status = CASE
+  WHEN urgency_level IN ('High', 'Emergency') THEN 'Pending Verification'
+  ELSE 'Not Required'
+END
+WHERE verification_status IS NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'blood_requests_verification_status_check'
+  ) THEN
+    ALTER TABLE blood_requests
+      ADD CONSTRAINT blood_requests_verification_status_check
+      CHECK (verification_status IN ('Not Required', 'Pending Verification', 'Verified', 'Rejected'));
+  END IF;
+END
+$$;
+
+ALTER TABLE blood_donations ADD COLUMN IF NOT EXISTS completion_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE blood_donations ADD COLUMN IF NOT EXISTS completed_by BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE blood_donations ADD COLUMN IF NOT EXISTS completion_verified_at TIMESTAMPTZ;
+ALTER TABLE blood_donations ADD COLUMN IF NOT EXISTS completion_method VARCHAR(30) DEFAULT 'self';
+ALTER TABLE blood_donations ADD COLUMN IF NOT EXISTS verification_qr_token VARCHAR(120) UNIQUE;
+ALTER TABLE blood_donations ADD COLUMN IF NOT EXISTS verification_qr_expires_at TIMESTAMPTZ;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'blood_donations_completion_method_check'
+  ) THEN
+    ALTER TABLE blood_donations
+      ADD CONSTRAINT blood_donations_completion_method_check
+      CHECK (completion_method IN ('self', 'hospital_scan', 'blood_bank_scan', 'doctor_verify', 'admin_verify'));
+  END IF;
+END
+$$;
+
+ALTER TABLE blood_inventory ADD COLUMN IF NOT EXISTS hospital_id BIGINT REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE blood_inventory DROP CONSTRAINT IF EXISTS blood_inventory_blood_group_key;
 
 -- Auto-update updated_at
 CREATE OR REPLACE FUNCTION set_updated_at_timestamp()
@@ -154,16 +268,25 @@ FOR EACH ROW
 EXECUTE FUNCTION set_inventory_last_updated();
 
 -- Seed initial inventory
-INSERT INTO blood_inventory (blood_group, available_units, reserved_units) VALUES
-('A+', 0, 0),
-('A-', 0, 0),
-('B+', 0, 0),
-('B-', 0, 0),
-('AB+', 0, 0),
-('AB-', 0, 0),
-('O+', 0, 0),
-('O-', 0, 0)
-ON CONFLICT (blood_group) DO NOTHING;
+INSERT INTO blood_inventory (hospital_id, blood_group, available_units, reserved_units)
+SELECT NULL, seed.blood_group, 0, 0
+FROM (
+  VALUES
+    ('A+'),
+    ('A-'),
+    ('B+'),
+    ('B-'),
+    ('AB+'),
+    ('AB-'),
+    ('O+'),
+    ('O-')
+) AS seed(blood_group)
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM blood_inventory bi
+  WHERE bi.hospital_id IS NULL
+    AND bi.blood_group = seed.blood_group
+);
 
 -- Performance indexes
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -187,6 +310,23 @@ CREATE INDEX IF NOT EXISTS idx_blood_requests_created_at ON blood_requests(creat
 CREATE INDEX IF NOT EXISTS idx_blood_donations_donor_id ON blood_donations(donor_id);
 CREATE INDEX IF NOT EXISTS idx_blood_donations_request_id ON blood_donations(request_id);
 CREATE INDEX IF NOT EXISTS idx_blood_donations_status ON blood_donations(status);
+CREATE INDEX IF NOT EXISTS idx_blood_donations_completion_verified ON blood_donations(completion_verified);
+CREATE INDEX IF NOT EXISTS idx_blood_donations_qr_token ON blood_donations(verification_qr_token);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_blood_inventory_global_unique
+ON blood_inventory (blood_group)
+WHERE hospital_id IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_blood_inventory_hospital_unique
+ON blood_inventory (hospital_id, blood_group)
+WHERE hospital_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_blood_inventory_hospital_id ON blood_inventory(hospital_id);
+CREATE INDEX IF NOT EXISTS idx_blood_requests_verification_status ON blood_requests(verification_status);
+CREATE INDEX IF NOT EXISTS idx_blood_requests_verification_required ON blood_requests(verification_required);
+CREATE INDEX IF NOT EXISTS idx_users_role_verified ON users(role, is_verified);
+CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);
+CREATE INDEX IF NOT EXISTS idx_users_alert_snooze_until ON users(alert_snooze_until);
 
 CREATE INDEX IF NOT EXISTS idx_contact_messages_status ON contact_messages(status);
 CREATE INDEX IF NOT EXISTS idx_contact_messages_created_at ON contact_messages(created_at);
@@ -215,3 +355,10 @@ WHERE af.user_id IS NOT NULL
 CREATE UNIQUE INDEX IF NOT EXISTS idx_app_feedback_user_unique
 ON app_feedback(user_id)
 WHERE user_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id_created_at
+ON user_notifications(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_unread
+ON user_notifications(user_id, is_read)
+WHERE is_read = FALSE;

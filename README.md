@@ -5,6 +5,8 @@ A blood donation platform that connects donors with recipients, with location-aw
 ## Features
 
 - User registration/login with bcrypt password hashing
+- Role-based accounts: `user`, `hospital`, `blood_bank`, `doctor`, `admin`
+- Authority verification queue (admin approval for hospitals/doctors/blood banks)
 - Email verification flow (when SMTP is configured)
 - Forgot password flow with secure email reset tokens
 - Server-side phone validation (10-digit format)
@@ -15,6 +17,10 @@ A blood donation platform that connects donors with recipients, with location-aw
 - In-app rating and feedback collection with summary analytics
 - Notification center for app events and emergency alerts
 - Blood request and donation workflows
+- Verified emergency workflow (`Pending Verification` -> `Verify & Broadcast`)
+- Multi-tenant inventory (global + hospital-scoped inventory)
+- Donation QR token workflow for verified completion
+- In-app passive stock notifications for donor restocking
 - Inventory tracking and contact management
 - Nearby donor matching (Haversine formula)
 - Live emergency alerts with Server-Sent Events (SSE)
@@ -67,6 +73,8 @@ EMAIL_VERIFICATION_TOKEN_TTL_HOURS=24
 CORS_ORIGIN=
 APP_BASE_URL=http://localhost:3000
 DISPOSABLE_EMAIL_DOMAINS=
+ADMIN_API_KEY=
+REQUIRE_AUTHORITY_FOR_DONATION_COMPLETION=false
 
 # Required for forgot password + email verification + contact-form email notifications
 SMTP_HOST=
