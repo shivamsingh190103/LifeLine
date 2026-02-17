@@ -1860,3 +1860,316 @@ body {
     padding: 12px;
   }
 }
+
+/* 20260218r Home Experience Refresh */
+.volunteer {
+  background: linear-gradient(160deg, #f6f8ff 0%, #fce8ee 100%);
+  padding: 56px 18px 48px;
+}
+
+.volunteer .title-head {
+  background: transparent;
+  padding: 0;
+}
+
+.volunteer .title {
+  font-family: "Alegreya Sans SC", sans-serif;
+  letter-spacing: 0.08em;
+  font-size: clamp(1.9rem, 3vw, 2.6rem);
+  color: #1f2438;
+}
+
+.volunteer .hero-quote {
+  max-width: 760px;
+  margin: 10px auto 0;
+  text-align: center;
+  color: #2e3350;
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.volunteer .content {
+  max-width: 780px;
+  height: auto;
+  margin: 0 auto;
+  padding: 8px 0 0;
+  color: #6a6f8d;
+  text-align: center;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  background: transparent;
+}
+
+.volunteer .hero-board-head {
+  max-width: 900px;
+  margin: 18px auto 0;
+}
+
+.volunteer .hero-board-head p {
+  color: #4f567a;
+  font-weight: 600;
+}
+
+.volunteer .hero-refresh-btn {
+  background: #ffffff;
+  color: #de5b6f;
+  border: 1px solid #ffd6df;
+}
+
+.volunteer .hero-honour-cards {
+  max-width: 900px;
+  margin-top: 14px;
+}
+
+.volunteer .hero-honour-card {
+  background: #ffffff;
+  border: 1px solid #ffdce4;
+  border-radius: 14px;
+  box-shadow: 0 10px 22px rgba(59, 63, 95, 0.08);
+}
+
+.volunteer .hero-honour-card h3 {
+  color: #28305a;
+  font-size: 1.02rem;
+}
+
+.volunteer .hero-honour-card p {
+  color: #6a708f;
+  font-size: 0.9rem;
+}
+
+.volunteer .volunt {
+  max-width: 900px;
+  margin: 16px auto 0;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(235, 205, 212, 0.8);
+  box-shadow: 0 12px 30px rgba(70, 75, 111, 0.1);
+}
+
+.volunteer .volunt .vol {
+  display: block;
+  margin: 8px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: #2a3155;
+  background: #ffffff;
+  border: 1px solid #f1dbe1;
+}
+
+.volunteer .volunt .vol:nth-child(1),
+.volunteer .volunt .vol:nth-child(2),
+.volunteer .volunt .vol:nth-child(3) {
+  background: #ffffff;
+}
+
+.volunteer .volunt .vol:hover {
+  transform: translateY(-1px);
+  background: #fff6f8;
+}
+
+.hero-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.hero-rank-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ff7f97, #ff5f6d);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.hero-row-main strong {
+  font-size: 1rem;
+  color: #25305b;
+  font-weight: 700;
+}
+
+.hero-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #576089;
+  font-size: 0.86rem;
+}
+
+.hero-mini-quote {
+  margin-top: 4px;
+  padding: 0;
+  color: #6a7090;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  font-style: italic;
+}
+
+.volunteer .hero-cta {
+  margin-top: 14px;
+}
+
+.volunteer .hero-cta a {
+  border: 1px solid #ffd5de;
+  box-shadow: 0 6px 16px rgba(83, 88, 130, 0.12);
+}
+
+.customer-review {
+  padding: 64px 18px 72px !important;
+  height: auto !important;
+  background-attachment: scroll !important;
+}
+
+.customer-review .row-customer h2 {
+  margin-bottom: 10px;
+}
+
+.testimonial-subtitle {
+  text-align: center;
+  color: #d2d5e4;
+  font-size: 1rem;
+  margin-top: -2px;
+}
+
+.testimonial-score {
+  text-align: center;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 700;
+  margin-top: -6px;
+  margin-bottom: 16px;
+}
+
+.testimonial-slider {
+  max-width: 860px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.testimonial-window {
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.testimonial-track {
+  display: flex;
+  transition: transform 0.45s ease;
+}
+
+.testimonial-card {
+  min-width: 100%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 16px;
+  padding: 22px 20px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+.testimonial-stars {
+  margin: 0;
+  padding: 0;
+  color: #ffd166;
+  letter-spacing: 0.15em;
+  font-size: 1rem;
+}
+
+.testimonial-text {
+  margin-top: 8px;
+  color: #f7f8ff;
+  font-size: 1rem;
+  line-height: 1.6;
+  padding: 0;
+}
+
+.testimonial-user {
+  margin-top: 10px;
+  color: #ffe1e8;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0;
+}
+
+.testimonial-nav {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.testimonial-nav:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.testimonial-dots {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.testimonial-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+}
+
+.testimonial-dot.active {
+  width: 20px;
+  background: #ffd166;
+}
+
+@media (max-width: 900px) {
+  .volunteer .hero-honour-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .volunteer {
+    padding: 44px 14px 40px;
+  }
+
+  .volunteer .hero-board-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .volunteer .hero-refresh-btn {
+    width: 100%;
+  }
+
+  .hero-row-meta {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .testimonial-slider {
+    grid-template-columns: 1fr;
+  }
+
+  .testimonial-nav {
+    display: none;
+  }
+
+  .testimonial-card {
+    padding: 18px 14px;
+  }
+}

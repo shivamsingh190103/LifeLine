@@ -35,7 +35,7 @@ const findNearbyDonors = async ({
   const normalizedLimit = parsePositiveInt(limit, 50);
 
   const [donors] = await pool.execute(
-    `SELECT id, name, email, phone, blood_group, location, city, state, latitude, longitude, last_donation_date
+    `SELECT id, name, blood_group, location, city, state, latitude, longitude, last_donation_date
      FROM users
      WHERE is_donor = TRUE
        AND blood_group = ?

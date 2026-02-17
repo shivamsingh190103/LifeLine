@@ -6,7 +6,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href='./Images/bb_logo(white).png' type="image/png">
-    <link rel="stylesheet" href='index.css?v=20260218m'>
+    <link rel="stylesheet" href='index.css?v=20260218r'>
     <link rel="stylesheet" href='https://fontawesome.com/v4.7.0/icon/bars'>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -117,13 +117,15 @@
 
     <!-- Volunteer Section -->
 
-    <div class="volunteer" section id="vol-sect">
+    <section class="volunteer" id="vol-sect">
         <div class="title-head">
             <h1 class="title">Our Super Heroes</h1>
         </div>
-        <p class="content">
-            Every completed donation is a life-saving act. We honor active donors below and invite everyone to join this
-            movement. Your one step can become someone's second chance.
+        <p class="hero-quote" id="heroQuote">
+            One bag of blood can carry hope to three lives.
+        </p>
+        <p class="content" id="heroEncouragement">
+            Verified donations build this board. Start your journey and become someone’s reason to recover.
         </p>
 
         <div class="hero-board-head">
@@ -135,78 +137,50 @@
 
         <div class="hero-honour-cards" id="heroHonourCards">
             <div class="hero-honour-card">
-                <h3>Legend Hero</h3>
-                <p>Top active donor gets the Hall of Honor spotlight.</p>
-            </div>
-            <div class="hero-honour-card">
-                <h3>Gold Hero</h3>
-                <p>Consistent lifesavers ranked 2 and 3.</p>
-            </div>
-            <div class="hero-honour-card">
-                <h3>Community Hero</h3>
-                <p>Every verified donor is respected and appreciated.</p>
+                <h3>Loading Hero</h3>
+                <p>Fetching real donor impact...</p>
             </div>
         </div>
 
         <ul class="volunt" id="liveSuperheroList">
             <li class="vol">
-                <span class="vol-i number">1</span>
-                <span class="vol-i name">Loading Hero...</span>
-                <span class="vol-i location">Fetching live data</span>
-                <span class="vol-i blood group">-- <i class="fa fa-tint" aria-hidden="true"></i></span>
+                <div class="hero-row-main">
+                    <span class="hero-rank-pill">#1</span>
+                    <strong>Loading Hero...</strong>
+                </div>
+                <div class="hero-row-meta">Fetching live data...</div>
             </li>
         </ul>
-
-        <p class="hero-encouragement" id="heroEncouragement">
-            Donate blood today and appear on the Super Heroes board.
-        </p>
 
         <div class="hero-cta">
             <a href="/donate" target="_blank">Donate Now</a>
             <a href="/register" target="_blank">Join as Donor</a>
         </div>
-    </div>
+    </section>
     <!--REVIEW-->
     <section class="customer-review">
         <div class="row-customer">
-            <h2>Testimonials<br>See what our users have to say</h2>
+            <h2>Testimonials</h2>
+            <p class="testimonial-subtitle">Real feedback shared by LifeLine users</p>
+            <p class="testimonial-score" id="testimonialScore">Loading ratings...</p>
         </div>
-        <div class="row-customer">
-            <div class="col-customer span-1-of-3-customer customer-box">
-                <div class="customer-text-box">
-                    Blood Buddy is just awesome! I just donated for the first time and it could not have been
-                    easier.Blood Buddy is doing a very important work and I'm happy that I could contribute . It's
-                    hygienic,safe and convenient, I recommend it to everyone!
-                </div>
-                <div class="customer">
-                    <img src="Images/review-3.PNG" alt="Customer photo">
-                    <p>Esha Puri </p>
-                </div>
-            </div>
 
-            <div class="col-customer span-1-of-3-customer customer-box">
-                <div class="customer-text-box">
-                    I found Blood Buddy at a time that my mother was in urgent need of blood. Blood Buddy arranged the
-                    required amount in no time. It saved us a lot of hassle and worry especially in such a trying
-                    time.<br> Thank you Blood Buddy!
-                </div>
-                <div class="customer">
-                    <img src="Images/review-2.PNG" alt="Customer photo">
-                    <p>Amit Mangal</p>
-                </div>
-            </div>
-            <div class="col-customer span-1-of-3-customer customer-box">
-                <div class="customer-text-box">
-                    I have been a part of this organization for quite some time and each time I'm amazed by the seamless
-                    and efficient system in place.The importance of timely care especially in the recent times is known
-                    and having Blood Buddy takes a load off my mind.
-                </div>
-                <div class="customer">
-                    <img src="Images/review-1.PNG" alt="Customer photo">
-                    <p>Dr.Kabir Khatri</p>
+        <div class="testimonial-slider" aria-live="polite">
+            <button class="testimonial-nav prev" id="testimonialPrevBtn" type="button" aria-label="Previous testimonial">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <div class="testimonial-window">
+                <div class="testimonial-track" id="testimonialTrack">
+                    <article class="testimonial-card">
+                        <p class="testimonial-text">Loading user experiences...</p>
+                    </article>
                 </div>
             </div>
+            <button class="testimonial-nav next" id="testimonialNextBtn" type="button" aria-label="Next testimonial">
+                <i class="fas fa-chevron-right"></i>
+            </button>
         </div>
+        <div class="testimonial-dots" id="testimonialDots"></div>
     </section>
 
     <!--FOOTER-->
@@ -258,7 +232,7 @@
         window.addEventListener('load', fadeEffect);
     </script>
     <!--js for scroll to top-->
-    <script src="up.js?v=20260218m"></script>
+    <script src="up.js?v=20260218r"></script>
 
     <!--JAVASCRIPT FOR TOGGLE MENU -->
     <script>
@@ -275,8 +249,8 @@
 
 
     <!--js for scroll effects-->
-    <script src="scroll.js?v=20260218m"></script>
-    <script src="index.js?v=20260218m"></script>
+    <script src="scroll.js?v=20260218r"></script>
+    <script src="index.js?v=20260218r"></script>
 
 </body>
 

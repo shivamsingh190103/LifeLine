@@ -188,7 +188,7 @@ router.get('/donors-by-location', async (req, res) => {
     ];
 
     let query = `
-      SELECT id, name, email, phone, blood_group, location, city, state, last_donation_date
+      SELECT id, name, blood_group, location, city, state, last_donation_date
       FROM users
       WHERE is_donor = TRUE
         AND (COALESCE(location, '') ILIKE ?
@@ -256,8 +256,8 @@ router.get('/receivers-by-location', async (req, res) => {
 
     let query = `
       SELECT br.id, br.patient_name, br.blood_group, br.units_required, br.hospital_name, br.hospital_address,
-             br.urgency_level, br.contact_person, br.contact_phone, br.required_date, br.status, br.created_at,
-             u.id AS requester_id, u.name AS requester_name, u.phone AS requester_phone,
+             br.urgency_level, br.required_date, br.status, br.created_at,
+             u.id AS requester_id, u.name AS requester_name,
              u.location AS requester_location, u.city AS requester_city, u.state AS requester_state
       FROM blood_requests br
       LEFT JOIN users u ON br.requester_id = u.id

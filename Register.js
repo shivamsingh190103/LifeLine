@@ -109,10 +109,16 @@ document.addEventListener('DOMContentLoaded', () => {
             latitude: formData.get('latitude') || null,
             longitude: formData.get('longitude') || null,
             role,
-            license_number: isAuthorityRole ? licenseNumber : null,
-            facility_id: role === 'doctor' && Number.isInteger(facilityId) && facilityId > 0 ? facilityId : null,
             is_donor: isDonorByRole
         };
+
+        if (isAuthorityRole) {
+            userData.license_number = licenseNumber;
+        }
+
+        if (role === 'doctor' && Number.isInteger(facilityId) && facilityId > 0) {
+            userData.facility_id = facilityId;
+        }
 
         if (!userData.name || !userData.email || !userData.password || !userData.blood_group || !userData.phone || !userData.location || !userData.city || !userData.state) {
             showMessage('Please fill all required fields', 'error');

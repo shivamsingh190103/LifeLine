@@ -1465,7 +1465,7 @@ async function loadNearbyDonors() {
                 <p><strong>Blood Group:</strong> ${donor.blood_group}</p>
                 <p><strong>Distance:</strong> ${donor.distance_km} km</p>
                 <p><strong>Location:</strong> ${donor.city || donor.location || 'Not specified'}</p>
-                <p><strong>Contact:</strong> ${donor.phone || donor.email || 'Not available'}</p>
+                <p><strong>Contact:</strong> Hidden for privacy. Use request + verified call flow.</p>
             </div>
         `).join('');
     } catch (error) {
@@ -1561,7 +1561,7 @@ async function searchDonorsByLocation() {
                 <h4>${escapeHtml(donor.name)}</h4>
                 <p><strong>Blood Group:</strong> ${escapeHtml(donor.blood_group)}</p>
                 <p><strong>Location:</strong> ${escapeHtml(donor.city || donor.location || donor.state || 'Not specified')}</p>
-                <p><strong>Contact:</strong> ${escapeHtml(donor.phone || donor.email || 'Not available')}</p>
+                <p><strong>Contact:</strong> Hidden for privacy. Use dashboard emergency workflow.</p>
             </div>
         `).join('');
     } catch (error) {
@@ -1614,12 +1614,12 @@ async function searchReceiversByLocation() {
 
         container.innerHTML = result.receivers.map(receiver => `
             <div class="search-item receiver">
-                <h4>${escapeHtml(receiver.patient_name)}</h4>
+                <h4>${escapeHtml(receiver.patient_name)} (Request #${escapeHtml(receiver.id)})</h4>
                 <p><strong>Blood Group:</strong> ${escapeHtml(receiver.blood_group)} | <strong>Units:</strong> ${escapeHtml(receiver.units_required)}</p>
                 <p><strong>Urgency:</strong> ${escapeHtml(receiver.urgency_level)}</p>
                 <p><strong>Hospital:</strong> ${escapeHtml(receiver.hospital_name || 'Not specified')}</p>
                 <p><strong>Location:</strong> ${escapeHtml(receiver.requester_city || receiver.requester_location || receiver.requester_state || receiver.hospital_address || 'Not specified')}</p>
-                <p><strong>Contact:</strong> ${escapeHtml(receiver.contact_phone || receiver.requester_phone || 'Not available')}</p>
+                <p><strong>Contact:</strong> Private. Authorities can generate secure call link.</p>
             </div>
         `).join('');
     } catch (error) {
