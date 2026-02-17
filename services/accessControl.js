@@ -84,6 +84,10 @@ const getUserById = async userId => {
   }
 
   const user = users[0];
+  user.id = parsePositiveInt(user.id) || user.id;
+  user.facility_id = user.facility_id === null || user.facility_id === undefined
+    ? null
+    : (parsePositiveInt(user.facility_id) || user.facility_id);
   user.role = normalizeRole(user.role);
   user.is_verified = Boolean(user.is_verified);
   user.is_active = user.is_active !== false;

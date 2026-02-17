@@ -475,7 +475,7 @@ router.post('/register', authLimiter, async (req, res) => {
       is_donor,
       role = ROLES.USER,
       license_number = null,
-      facility_id = null
+      facility_id
     } = req.body;
 
     const normalizedName = normalizeString(name);
