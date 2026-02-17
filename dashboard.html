@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href='dashboard.css'>
+    <link rel="icon" href='./Images/bb_logo(black).png' type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"/>
+    <title>BloodBank Dashboard</title>
+</head>
+<body>
+    <header>
+        <nav>
+            <div class="header-logo">
+                <img src="./Images/bb_logo(black).png" alt="BloodBank Logo">
+                <span>BloodBank Dashboard</span>
+            </div>
+            <div class="header-list">
+                <ul>
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/donate">Donate</a></li>
+                    <li><a href="/help">Contact</a></li>
+                    <li><a href="#" id="logoutBtn">Logout</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <div class="dashboard-container">
+            <!-- User Profile Section -->
+            <section class="profile-section">
+                <div class="profile-card">
+                    <div class="profile-header">
+                        <i class="fas fa-user-circle"></i>
+                        <h2 id="userName">Loading...</h2>
+                        <p id="userEmail">Loading...</p>
+                    </div>
+                    <div class="profile-details">
+                        <div class="detail-item">
+                            <span class="label">Blood Group:</span>
+                            <span id="userBloodGroup" class="value">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Location:</span>
+                            <span id="userLocation" class="value">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Phone:</span>
+                            <span id="userPhone" class="value">-</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Quick Actions -->
+            <section class="actions-section">
+                <h3>Quick Actions</h3>
+                <div class="action-buttons">
+                    <button class="action-btn" id="requestBloodBtn">
+                        <i class="fas fa-plus-circle"></i>
+                        Request Blood
+                    </button>
+                    <button class="action-btn" id="scheduleDonationBtn">
+                        <i class="fas fa-calendar-plus"></i>
+                        Schedule Donation
+                    </button>
+                    <button class="action-btn" id="viewInventoryBtn">
+                        <i class="fas fa-boxes"></i>
+                        View Inventory
+                    </button>
+                </div>
+            </section>
+
+            <!-- Statistics Cards -->
+            <section class="stats-section">
+                <h3>Statistics</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-tint"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h4>Total Donations</h4>
+                            <p id="totalDonations">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-hand-holding-heart"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h4>Blood Requests</h4>
+                            <p id="totalRequests">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h4>Available Donors</h4>
+                            <p id="availableDonors">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h4>Urgent Requests</h4>
+                            <p id="urgentRequests">0</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Nearby Donors -->
+            <section class="nearby-section">
+                <div class="section-head">
+                    <h3>Nearby Eligible Donors</h3>
+                    <button class="btn-secondary compact" id="refreshNearbyDonorsBtn" type="button">Refresh</button>
+                </div>
+                <div class="nearby-container" id="nearbyDonors">
+                    <div class="loading">Loading nearby donors...</div>
+                </div>
+            </section>
+
+            <!-- Live Emergency Alerts -->
+            <section class="alerts-section">
+                <h3>Live Emergency Alerts</h3>
+                <div class="alerts-container" id="liveAlerts">
+                    <div class="loading">Waiting for emergency alerts...</div>
+                </div>
+            </section>
+
+            <!-- Recent Blood Requests -->
+            <section class="requests-section">
+                <h3>Recent Blood Requests</h3>
+                <div class="requests-container" id="recentRequests">
+                    <div class="loading">Loading requests...</div>
+                </div>
+            </section>
+
+            <!-- Recent Donations -->
+            <section class="donations-section">
+                <h3>Recent Donations</h3>
+                <div class="donations-container" id="recentDonations">
+                    <div class="loading">Loading donations...</div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Blood Request Modal -->
+    <div id="requestModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Request Blood</h2>
+            <form id="bloodRequestForm">
+                <div class="form-group">
+                    <label for="patientName">Patient Name *</label>
+                    <input type="text" id="patientName" name="patientName" required>
+                </div>
+                <div class="form-group">
+                    <label for="bloodGroup">Blood Group *</label>
+                    <select id="bloodGroup" name="bloodGroup" required>
+                        <option value="">Select Blood Group</option>
+                        <option value="A+">A+</option>
+                        <option value="A-">A-</option>
+                        <option value="B+">B+</option>
+                        <option value="B-">B-</option>
+                        <option value="AB+">AB+</option>
+                        <option value="AB-">AB-</option>
+                        <option value="O+">O+</option>
+                        <option value="O-">O-</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="unitsRequired">Units Required *</label>
+                    <input type="number" id="unitsRequired" name="unitsRequired" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label for="hospitalName">Hospital Name</label>
+                    <input type="text" id="hospitalName" name="hospitalName">
+                </div>
+                <div class="form-group">
+                    <label for="urgencyLevel">Urgency Level</label>
+                    <select id="urgencyLevel" name="urgencyLevel">
+                        <option value="Low">Low</option>
+                        <option value="Medium" selected>Medium</option>
+                        <option value="High">High</option>
+                        <option value="Emergency">Emergency</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="reason">Reason</label>
+                    <textarea id="reason" name="reason" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="requiredDate">Required Date</label>
+                    <input type="date" id="requiredDate" name="requiredDate">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Submit Request</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('requestModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Donation Modal -->
+    <div id="donationModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Schedule Blood Donation</h2>
+            <form id="donationForm">
+                <div class="form-group">
+                    <label for="donationDate">Donation Date *</label>
+                    <input type="date" id="donationDate" name="donationDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="donationCenter">Donation Center</label>
+                    <input type="text" id="donationCenter" name="donationCenter">
+                </div>
+                <div class="form-group">
+                    <label for="unitsDonated">Units to Donate</label>
+                    <input type="number" id="unitsDonated" name="unitsDonated" min="1" value="1">
+                </div>
+                <div class="form-group">
+                    <label for="donationNotes">Notes</label>
+                    <textarea id="donationNotes" name="donationNotes" rows="3"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Schedule Donation</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('donationModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
