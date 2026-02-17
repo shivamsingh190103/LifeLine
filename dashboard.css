@@ -904,4 +904,56 @@ main {
         flex-direction: column;
         align-items: flex-start;
     }
+
+    nav {
+        padding: 0.85rem 0.8rem;
+    }
+
+    .header-logo {
+        gap: 0.5rem;
+    }
+
+    .header-logo span {
+        font-size: 1.1rem;
+    }
+
+    .header-list ul {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.55rem 0.85rem;
+    }
+
+    .request-item,
+    .donation-item,
+    .nearby-item,
+    .alert-item,
+    .search-card,
+    .feedback-form,
+    .feedback-summary {
+        min-width: 0;
+    }
+
+    .request-item p,
+    .donation-item p,
+    .nearby-item p,
+    .alert-item p,
+    .search-item p,
+    .hero-content p,
+    .notification-item p {
+        overflow-wrap: anywhere;
+    }
+
+    .notification-meta {
+        flex-wrap: wrap;
+    }
+
+    .location-search-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .location-search-grid {
+        grid-template-columns: 1fr;
+    }
 }

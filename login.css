@@ -155,6 +155,15 @@ main {
     display: none;
 }
 
+.form-group input[type="password"]::-webkit-credentials-auto-fill-button,
+.form-group input[type="password"]::-webkit-caps-lock-indicator,
+.form-group input[type="password"]::-webkit-strong-password-auto-fill-button,
+.form-group input[type="password"]::-webkit-textfield-decoration-container {
+    visibility: hidden;
+    pointer-events: none;
+    position: absolute;
+}
+
 .form-group input:focus {
     outline: none;
     border-color: #667eea;
@@ -344,6 +353,20 @@ main {
 @media (max-width: 480px) {
     main {
         padding: 1rem;
+    }
+
+    nav {
+        padding: 0.8rem 0.75rem;
+    }
+
+    .header-list ul {
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.55rem 0.9rem;
+    }
+
+    .header-logo span {
+        font-size: 1.15rem;
     }
 
     .login-card {

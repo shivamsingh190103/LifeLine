@@ -300,3 +300,44 @@ nav {
         flex-direction: column;
     }
 }
+
+@media (max-width: 480px) {
+    nav {
+        padding: 0.75rem;
+    }
+
+    .header-logo img {
+        width: 110px;
+    }
+
+    .header-list ul {
+        width: 100%;
+        gap: 0.4rem;
+        justify-content: center;
+    }
+
+    .header-list a {
+        font-size: 0.78rem;
+        padding: 0.4rem 0.45rem;
+    }
+
+    .photo-panel h2 {
+        font-size: 1.8rem;
+    }
+
+    .subtitle {
+        font-size: 0.88rem;
+    }
+
+    .input-with-icon input,
+    .input-with-icon select,
+    .row-two input {
+        height: 46px;
+        font-size: 0.94rem;
+    }
+
+    .btn {
+        height: 46px;
+        font-size: 1.05rem;
+    }
+}
