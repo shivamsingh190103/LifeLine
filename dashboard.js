@@ -7,6 +7,7 @@ let alertReconnectAttempts = 0;
 let beforeUnloadBound = false;
 let attemptedLocationCapture = false;
 let notificationItems = [];
+let persistentNotifications = [];
 let myFeedback = null;
 const seenEmergencyAlerts = new Set();
 
@@ -17,6 +18,101 @@ const ALERT_POLL_INTERVAL_MS = 30000;
 const ALERT_RECONNECT_BASE_MS = 2000;
 const ALERT_RECONNECT_MAX_MS = 30000;
 const MAX_TRACKED_EMERGENCY_ALERTS = 150;
+const ROLE_VALUES = new Set(['user', 'hospital', 'blood_bank', 'doctor', 'admin']);
+
+const parsePositiveInt = value => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const normalizeRole = value => {
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : 'user';
+    return ROLE_VALUES.has(normalized) ? normalized : 'user';
+};
+
+const normalizeUserId = user => {
+    if (!user || !user.id) {
+        return user;
+    }
+
+    const parsedId = parsePositiveInt(user.id);
+    const parsedFacilityId = parsePositiveInt(user.facility_id);
+    return {
+        ...user,
+        id: parsedId || user.id,
+        facility_id: parsedFacilityId || null,
+        role: normalizeRole(user.role)
+    };
+};
+
+const isAuthorityRole = role => {
+    const normalizedRole = normalizeRole(role);
+    return normalizedRole === 'hospital' ||
+        normalizedRole === 'blood_bank' ||
+        normalizedRole === 'doctor' ||
+        normalizedRole === 'admin';
+};
+
+const isVerifiedAuthorityClient = user => {
+    if (!user) {
+        return false;
+    }
+
+    const role = normalizeRole(user.role);
+    if (!isAuthorityRole(role)) {
+        return false;
+    }
+
+    if (role === 'admin') {
+        return true;
+    }
+
+    return Boolean(user.is_verified);
+};
+
+const resolveHospitalScopeId = user => {
+    if (!user) {
+        return null;
+    }
+
+    const role = normalizeRole(user.role);
+    if (role === 'hospital' || role === 'blood_bank') {
+        return parsePositiveInt(user.id);
+    }
+
+    if (role === 'doctor') {
+        return parsePositiveInt(user.facility_id);
+    }
+
+    return null;
+};
+
+const getAuthorityScopeLabel = user => {
+    const role = normalizeRole(user?.role);
+    if (role === 'hospital') {
+        return `Hospital Scope: #${toDisplayValue(user?.id)}`;
+    }
+    if (role === 'blood_bank') {
+        return `Blood Bank Scope: #${toDisplayValue(user?.id)}`;
+    }
+    if (role === 'doctor') {
+        return user?.facility_id
+            ? `Doctor Scope: Facility #${toDisplayValue(user.facility_id)}`
+            : 'Doctor Scope: No facility_id set';
+    }
+    if (role === 'admin') {
+        return 'Admin Scope: Global';
+    }
+    return 'User Scope';
+};
+
+const roleToLabel = role => {
+    const normalized = normalizeRole(role);
+    if (normalized === 'blood_bank') {
+        return 'Blood Bank';
+    }
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
 
 const toDisplayValue = (value, fallback = '-') => {
     if (value === undefined || value === null) {
@@ -41,12 +137,24 @@ const escapeHtml = value => String(value ?? '')
 const renderUserProfile = (user) => {
     const location = user?.location ||
         [user?.city, user?.state].filter(value => typeof value === 'string' && value.trim()).join(', ');
+    const roleLabel = roleToLabel(user?.role);
+    const verificationLabel = normalizeRole(user?.role) === 'admin'
+        ? 'Verified'
+        : (user?.is_verified ? 'Verified' : 'Pending');
 
     document.getElementById('userName').textContent = toDisplayValue(user?.name, 'User');
     document.getElementById('userEmail').textContent = toDisplayValue(user?.email, 'No email');
     document.getElementById('userBloodGroup').textContent = toDisplayValue(user?.blood_group, '-');
     document.getElementById('userLocation').textContent = toDisplayValue(location, 'Not specified');
     document.getElementById('userPhone').textContent = toDisplayValue(user?.phone, 'Not specified');
+    const roleNode = document.getElementById('userRole');
+    const verificationNode = document.getElementById('userVerification');
+    if (roleNode) {
+        roleNode.textContent = roleLabel;
+    }
+    if (verificationNode) {
+        verificationNode.textContent = verificationLabel;
+    }
 };
 
 const loadNotificationState = () => {
@@ -77,7 +185,8 @@ const renderNotificationCenter = () => {
     const container = document.getElementById('notificationFeed');
     const countNode = document.getElementById('notificationCount');
     if (countNode) {
-        countNode.textContent = String(notificationItems.length);
+        const unreadServerCount = persistentNotifications.filter(item => !item.is_read).length;
+        countNode.textContent = String(notificationItems.length + unreadServerCount);
     }
     if (!container) {
         return;
@@ -146,6 +255,9 @@ async function initializeDashboard() {
             return;
         }
 
+        currentUser = normalizeUserId(currentUser);
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+
         // Render cached data immediately so UI never remains on "Loading..."
         renderUserProfile(currentUser);
 
@@ -153,6 +265,7 @@ async function initializeDashboard() {
         if (!profileLoaded) {
             renderUserProfile(currentUser);
         }
+        configureRoleBasedSections();
 
         await syncCurrentLocation({ silent: true, force: true });
 
@@ -164,13 +277,21 @@ async function initializeDashboard() {
             loadSuperheroes(),
             loadFeedbackSummary(),
             loadRecentFeedback(),
-            loadMyFeedback()
+            loadMyFeedback(),
+            loadPersistentNotifications()
         ]);
 
         await Promise.all([
             primeDonorLocationSearch(),
             primeReceiverLocationSearch()
         ]);
+
+        if (isVerifiedAuthorityClient(currentUser)) {
+            await Promise.all([
+                loadPendingVerificationRequests(),
+                loadScopedInventory()
+            ]);
+        }
 
         startEmergencyAlerts();
     } catch (error) {
@@ -194,6 +315,20 @@ function setupEventListeners() {
     const refreshSuperheroesBtn = document.getElementById('refreshSuperheroesBtn');
     const refreshFeedbackBtn = document.getElementById('refreshFeedbackBtn');
     const refreshMyLocationBtn = document.getElementById('refreshMyLocationBtn');
+    const refreshServerNotificationsBtn = document.getElementById('refreshServerNotificationsBtn');
+    const refreshPendingVerificationBtn = document.getElementById('refreshPendingVerificationBtn');
+    const completeDonationByQrForm = document.getElementById('completeDonationByQrForm');
+    const generateCallLinkForm = document.getElementById('generateCallLinkForm');
+    const refreshScopedInventoryBtn = document.getElementById('refreshScopedInventoryBtn');
+    const inventoryUpdateForm = document.getElementById('inventoryUpdateForm');
+    const inventoryOperationForm = document.getElementById('inventoryOperationForm');
+    const loadPendingAuthoritiesBtn = document.getElementById('loadPendingAuthoritiesBtn');
+    const profileControlsForm = document.getElementById('profileControlsForm');
+    const deleteProfileBtn = document.getElementById('deleteProfileBtn');
+    const urgencyLevelSelect = document.getElementById('urgencyLevel');
+    const persistentNotificationFeed = document.getElementById('persistentNotificationFeed');
+    const pendingVerificationList = document.getElementById('pendingVerificationList');
+    const pendingAuthoritiesList = document.getElementById('pendingAuthoritiesList');
 
     if (requestBtn) {
         requestBtn.addEventListener('click', () => openModal('requestModal'));
@@ -224,6 +359,106 @@ function setupEventListeners() {
             if (updated) {
                 showMessage('Location updated successfully', 'success');
                 await Promise.all([loadNearbyDonors(), primeDonorLocationSearch(), primeReceiverLocationSearch()]);
+            }
+        });
+    }
+    if (refreshServerNotificationsBtn) {
+        refreshServerNotificationsBtn.addEventListener('click', loadPersistentNotifications);
+    }
+    if (refreshPendingVerificationBtn) {
+        refreshPendingVerificationBtn.addEventListener('click', loadPendingVerificationRequests);
+    }
+    if (completeDonationByQrForm) {
+        completeDonationByQrForm.addEventListener('submit', handleCompleteDonationByQr);
+    }
+    if (generateCallLinkForm) {
+        generateCallLinkForm.addEventListener('submit', handleGenerateCallLink);
+    }
+    if (refreshScopedInventoryBtn) {
+        refreshScopedInventoryBtn.addEventListener('click', loadScopedInventory);
+    }
+    if (inventoryUpdateForm) {
+        inventoryUpdateForm.addEventListener('submit', handleScopedInventoryUpdate);
+    }
+    if (inventoryOperationForm) {
+        inventoryOperationForm.addEventListener('submit', handleScopedInventoryOperation);
+    }
+    if (loadPendingAuthoritiesBtn) {
+        loadPendingAuthoritiesBtn.addEventListener('click', loadPendingAuthoritiesForApproval);
+    }
+    if (profileControlsForm) {
+        profileControlsForm.addEventListener('submit', handleSaveProfileControls);
+    }
+    if (deleteProfileBtn) {
+        deleteProfileBtn.addEventListener('click', handleDeleteProfile);
+    }
+    if (urgencyLevelSelect) {
+        urgencyLevelSelect.addEventListener('change', updateRequestVerificationHint);
+        updateRequestVerificationHint();
+    }
+    if (persistentNotificationFeed) {
+        persistentNotificationFeed.addEventListener('click', event => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+
+            if (target.matches('[data-mark-read-id]')) {
+                const notificationId = parsePositiveInt(target.dataset.markReadId);
+                if (notificationId) {
+                    markServerNotificationAsRead(notificationId);
+                }
+            }
+        });
+    }
+    if (pendingVerificationList) {
+        pendingVerificationList.addEventListener('click', event => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+
+            if (target.matches('[data-verify-request-id]')) {
+                const requestId = parsePositiveInt(target.dataset.verifyRequestId);
+                if (requestId) {
+                    handleVerifyBroadcastAction(requestId, true);
+                }
+            }
+
+            if (target.matches('[data-reject-request-id]')) {
+                const requestId = parsePositiveInt(target.dataset.rejectRequestId);
+                if (requestId) {
+                    handleVerifyBroadcastAction(requestId, false);
+                }
+            }
+
+            if (target.matches('[data-call-link-request-id]')) {
+                const requestId = parsePositiveInt(target.dataset.callLinkRequestId);
+                if (requestId) {
+                    generateCallLinkForRequest(requestId);
+                }
+            }
+        });
+    }
+    if (pendingAuthoritiesList) {
+        pendingAuthoritiesList.addEventListener('click', event => {
+            const target = event.target;
+            if (!(target instanceof HTMLElement)) {
+                return;
+            }
+
+            if (target.matches('[data-authority-approve-id]')) {
+                const authorityId = parsePositiveInt(target.dataset.authorityApproveId);
+                if (authorityId) {
+                    setAuthorityApprovalStatus(authorityId, true);
+                }
+            }
+
+            if (target.matches('[data-authority-reject-id]')) {
+                const authorityId = parsePositiveInt(target.dataset.authorityRejectId);
+                if (authorityId) {
+                    setAuthorityApprovalStatus(authorityId, false);
+                }
             }
         });
     }
@@ -267,6 +502,726 @@ function setupEventListeners() {
     }
 }
 
+function configureRoleBasedSections() {
+    const authoritySection = document.getElementById('authorityConsoleSection');
+    const inventorySection = document.getElementById('inventoryManagementSection');
+    const scopeLabel = document.getElementById('authorityScopeLabel');
+    const inventoryScopeText = document.getElementById('inventoryScopeText');
+
+    const isAuthority = isVerifiedAuthorityClient(currentUser);
+    if (authoritySection) {
+        authoritySection.hidden = !isAuthority;
+    }
+    if (inventorySection) {
+        inventorySection.hidden = !isAuthority;
+    }
+
+    const scopeLabelText = getAuthorityScopeLabel(currentUser);
+    if (scopeLabel) {
+        scopeLabel.textContent = scopeLabelText;
+    }
+    if (inventoryScopeText) {
+        inventoryScopeText.textContent = `${scopeLabelText}. All inventory writes are scoped automatically.`;
+    }
+
+    const isDonorActive = document.getElementById('isDonorActive');
+    if (isDonorActive) {
+        isDonorActive.checked = currentUser?.is_donor !== false;
+    }
+
+    const alertSnoozeDays = document.getElementById('alertSnoozeDays');
+    if (alertSnoozeDays) {
+        const snoozeUntilRaw = currentUser?.alert_snooze_until;
+        const snoozeUntil = snoozeUntilRaw ? new Date(snoozeUntilRaw) : null;
+        if (!snoozeUntil || Number.isNaN(snoozeUntil.getTime()) || snoozeUntil <= new Date()) {
+            alertSnoozeDays.value = '0';
+        } else {
+            const dayDiff = Math.ceil((snoozeUntil.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+            if (dayDiff <= 1) {
+                alertSnoozeDays.value = '1';
+            } else if (dayDiff <= 7) {
+                alertSnoozeDays.value = '7';
+            } else {
+                alertSnoozeDays.value = '30';
+            }
+        }
+    }
+}
+
+function resolveScopedHospitalIdForAuthority() {
+    const role = normalizeRole(currentUser?.role);
+    const scopedHospitalId = resolveHospitalScopeId(currentUser);
+
+    if (role === 'doctor' && !scopedHospitalId) {
+        showMessage('Doctor account requires facility_id to manage scoped inventory.', 'warning');
+        return { scopedHospitalId: null, blocked: true };
+    }
+
+    if ((role === 'hospital' || role === 'blood_bank') && !scopedHospitalId) {
+        showMessage('Authority profile is missing an account ID for inventory scope.', 'warning');
+        return { scopedHospitalId: null, blocked: true };
+    }
+
+    return { scopedHospitalId, blocked: false };
+}
+
+function buildScopedInventoryPayload(payload = {}) {
+    const actorUserId = parsePositiveInt(currentUser?.id);
+    if (!actorUserId) {
+        return null;
+    }
+
+    const { scopedHospitalId, blocked } = resolveScopedHospitalIdForAuthority();
+    if (blocked) {
+        return null;
+    }
+
+    return {
+        ...payload,
+        actor_user_id: actorUserId,
+        ...(scopedHospitalId ? { hospital_id: scopedHospitalId } : {})
+    };
+}
+
+function buildScopedInventoryQueryString() {
+    const { scopedHospitalId, blocked } = resolveScopedHospitalIdForAuthority();
+    if (blocked) {
+        return null;
+    }
+
+    const params = new URLSearchParams();
+    if (scopedHospitalId) {
+        params.set('hospital_id', String(scopedHospitalId));
+    }
+
+    return params.toString();
+}
+
+function updateRequestVerificationHint() {
+    const urgencySelect = document.getElementById('urgencyLevel');
+    const requisitionInput = document.getElementById('requisitionImageUrl');
+    const note = document.getElementById('requestVerificationNote');
+    if (!urgencySelect || !requisitionInput || !note) {
+        return;
+    }
+
+    const urgencyLevel = String(urgencySelect.value || 'Medium');
+    const requiresVerification = urgencyLevel === 'High' || urgencyLevel === 'Emergency';
+    requisitionInput.required = requiresVerification;
+
+    if (requiresVerification) {
+        note.textContent = 'High and Emergency requests require doctor requisition and authority verification before live broadcast.';
+    } else {
+        note.textContent = 'Low and Medium requests are created immediately. High/Emergency are verification-gated.';
+    }
+}
+
+function setDonationPassPanel(passData = null) {
+    const passTextNode = document.getElementById('latestDonationPassText');
+    if (!passTextNode) {
+        return;
+    }
+
+    if (!passData || !passData.verification_qr_token) {
+        passTextNode.textContent = 'Schedule a donation to generate your verification pass.';
+        return;
+    }
+
+    const expiresLabel = passData.expires_at
+        ? new Date(passData.expires_at).toLocaleString()
+        : 'Not set';
+    passTextNode.textContent = `Token: ${passData.verification_qr_token} | Expires: ${expiresLabel}`;
+}
+
+async function loadPersistentNotifications() {
+    const container = document.getElementById('persistentNotificationFeed');
+    if (!container || !currentUser?.id) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/alerts/notifications/${currentUser.id}?limit=25`, {
+            headers: {
+                'x-actor-user-id': String(currentUser.id)
+            }
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            persistentNotifications = [];
+            container.innerHTML = `<div class="loading">${escapeHtml(result.message || 'Unable to load server notifications.')}</div>`;
+            renderNotificationCenter();
+            return;
+        }
+
+        persistentNotifications = Array.isArray(result.notifications)
+            ? result.notifications
+            : [];
+
+        if (persistentNotifications.length === 0) {
+            container.innerHTML = '<div class="loading">No server notifications available.</div>';
+            renderNotificationCenter();
+            return;
+        }
+
+        container.innerHTML = persistentNotifications.map(item => `
+            <div class="notification-item ${escapeHtml(item.type || 'info')} ${item.is_read ? 'is-read' : ''}">
+                <div class="notification-meta">
+                    <strong>${escapeHtml((item.type || 'info').toUpperCase())}</strong>
+                    <span>${escapeHtml(new Date(item.created_at).toLocaleString())}</span>
+                </div>
+                <p>${escapeHtml(item.message || '')}</p>
+                ${item.is_read
+        ? ''
+        : `<div class="notification-actions"><button type="button" class="mark-read-btn" data-mark-read-id="${escapeHtml(item.id)}">Mark Read</button></div>`}
+            </div>
+        `).join('');
+        renderNotificationCenter();
+    } catch (error) {
+        console.error('Load persistent notifications error:', error);
+        persistentNotifications = [];
+        renderNotificationCenter();
+        container.innerHTML = '<div class="loading">Failed to load server notifications right now.</div>';
+    }
+}
+
+async function markServerNotificationAsRead(notificationId) {
+    try {
+        const response = await fetch(`/api/alerts/notifications/${notificationId}/read`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                actor_user_id: currentUser.id
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.message || 'Failed to mark notification as read', 'error');
+            return;
+        }
+
+        await loadPersistentNotifications();
+    } catch (error) {
+        console.error('Mark notification as read error:', error);
+        showMessage('Unable to mark notification as read right now.', 'error');
+    }
+}
+
+async function loadPendingVerificationRequests() {
+    const container = document.getElementById('pendingVerificationList');
+    if (!container) {
+        return;
+    }
+
+    if (!isVerifiedAuthorityClient(currentUser)) {
+        container.innerHTML = '<div class="loading">Login as a verified authority to review pending emergencies.</div>';
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/blood-requests/pending-verification?actor_user_id=${encodeURIComponent(currentUser.id)}`);
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            container.innerHTML = `<div class="loading">${escapeHtml(result.message || 'Unable to load pending verifications.')}</div>`;
+            return;
+        }
+
+        if (!Array.isArray(result.requests) || result.requests.length === 0) {
+            container.innerHTML = '<div class="loading">No pending emergency requests right now.</div>';
+            return;
+        }
+
+        container.innerHTML = result.requests.map(request => `
+            <div class="authority-item">
+                <h5>#${escapeHtml(request.id)} · ${escapeHtml(request.patient_name || 'Unknown Patient')}</h5>
+                <p><strong>Blood:</strong> ${escapeHtml(request.blood_group)} · <strong>Units:</strong> ${escapeHtml(request.units_required)}</p>
+                <p><strong>Urgency:</strong> ${escapeHtml(request.urgency_level)} · <strong>Hospital:</strong> ${escapeHtml(request.hospital_name || 'Not specified')}</p>
+                <p><strong>Requester:</strong> ${escapeHtml(request.requester_name || 'Unknown')}</p>
+                <div class="action-row">
+                    <button type="button" class="btn-inline success" data-verify-request-id="${escapeHtml(request.id)}">Verify & Broadcast</button>
+                    <button type="button" class="btn-inline warning" data-reject-request-id="${escapeHtml(request.id)}">Reject</button>
+                    <button type="button" class="btn-inline info" data-call-link-request-id="${escapeHtml(request.id)}">Generate Call Link</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Load pending verification requests error:', error);
+        container.innerHTML = '<div class="loading">Failed to load pending verification requests.</div>';
+    }
+}
+
+async function handleVerifyBroadcastAction(requestId, approve) {
+    if (!isVerifiedAuthorityClient(currentUser)) {
+        showMessage('Only verified authority accounts can verify or reject requests.', 'warning');
+        return;
+    }
+
+    const notesPrompt = approve
+        ? 'Optional verification notes:'
+        : 'Reason for rejection (optional):';
+    const verificationNotes = window.prompt(notesPrompt, '') || '';
+
+    try {
+        const response = await fetch(`/api/blood-requests/${requestId}/verify-broadcast`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                actor_user_id: currentUser.id,
+                approve,
+                verification_notes: verificationNotes
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.message || 'Failed to update request verification', 'error');
+            return;
+        }
+
+        if (approve) {
+            showMessage(`Request verified and broadcast complete (${result.alerts_sent || 0} alerts sent).`, 'success');
+        } else {
+            showMessage('Request rejected successfully.', 'warning');
+        }
+
+        await Promise.all([loadPendingVerificationRequests(), loadRecentRequests(), loadStatistics()]);
+    } catch (error) {
+        console.error('Verify-broadcast action error:', error);
+        showMessage('Failed to update verification state right now.', 'error');
+    }
+}
+
+async function generateCallLinkForRequest(requestId) {
+    const callLinkResult = document.getElementById('callLinkResult');
+    if (!callLinkResult) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/blood-requests/${requestId}/call-link`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                actor_user_id: currentUser.id
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            callLinkResult.textContent = result.message || 'Failed to generate call link';
+            showMessage(result.message || 'Failed to generate call link', 'error');
+            return;
+        }
+
+        callLinkResult.innerHTML = `Request #${escapeHtml(result.request_id)} call link: <a href="${escapeHtml(result.call_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(result.call_url)}</a>`;
+        showMessage('Private call link generated.', 'success');
+    } catch (error) {
+        console.error('Generate call link error:', error);
+        callLinkResult.textContent = 'Failed to generate call link right now.';
+        showMessage('Failed to generate call link right now.', 'error');
+    }
+}
+
+async function handleGenerateCallLink(event) {
+    event.preventDefault();
+    const requestIdInput = document.getElementById('callLinkRequestId');
+    const requestId = parsePositiveInt(requestIdInput?.value);
+    if (!requestId) {
+        showMessage('Enter a valid request ID to generate call link.', 'warning');
+        return;
+    }
+
+    await generateCallLinkForRequest(requestId);
+}
+
+async function handleCompleteDonationByQr(event) {
+    event.preventDefault();
+    if (!isVerifiedAuthorityClient(currentUser)) {
+        showMessage('Only verified authority accounts can complete donations by token.', 'warning');
+        return;
+    }
+
+    const tokenInput = document.getElementById('verificationQrToken');
+    const notesInput = document.getElementById('verificationCompletionNotes');
+    const resultNode = document.getElementById('qrCompletionResult');
+    const token = tokenInput ? tokenInput.value.trim() : '';
+
+    if (!token) {
+        showMessage('Please paste a verification QR token.', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/donations/complete-by-token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                verification_qr_token: token,
+                actor_user_id: currentUser.id,
+                notes: notesInput ? notesInput.value.trim() : ''
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            if (resultNode) {
+                resultNode.textContent = result.message || 'Failed to complete donation.';
+            }
+            showMessage(result.message || 'Failed to complete donation by token.', 'error');
+            return;
+        }
+
+        if (resultNode) {
+            resultNode.textContent = `Donation #${result.donation_id} completed via ${result.completion_method}.`;
+        }
+        if (tokenInput) {
+            tokenInput.value = '';
+        }
+        if (notesInput) {
+            notesInput.value = '';
+        }
+
+        showMessage('Donation verified and completed successfully.', 'success');
+        await Promise.all([loadStatistics(), loadRecentDonations(), loadSuperheroes(), loadScopedInventory()]);
+    } catch (error) {
+        console.error('Complete donation by QR error:', error);
+        showMessage('Unable to complete donation by token right now.', 'error');
+    }
+}
+
+async function loadScopedInventory() {
+    const container = document.getElementById('scopedInventoryList');
+    if (!container) {
+        return;
+    }
+
+    if (!isVerifiedAuthorityClient(currentUser)) {
+        container.innerHTML = '<div class="loading">Only verified authority accounts can manage scoped inventory.</div>';
+        return;
+    }
+
+    const query = buildScopedInventoryQueryString();
+    if (query === null) {
+        container.innerHTML = '<div class="loading">Inventory scope is not configured for this account.</div>';
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/inventory/all${query ? `?${query}` : ''}`);
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            container.innerHTML = `<div class="loading">${escapeHtml(result.message || 'Unable to load inventory scope.')}</div>`;
+            return;
+        }
+
+        if (!Array.isArray(result.inventory) || result.inventory.length === 0) {
+            container.innerHTML = '<div class="loading">No inventory rows found for this scope.</div>';
+            return;
+        }
+
+        container.innerHTML = result.inventory.map(item => `
+            <div class="inventory-item">
+                <h4>${escapeHtml(item.blood_group)}</h4>
+                <p><strong>Available:</strong> ${escapeHtml(item.available_units)} units</p>
+                <p><strong>Reserved:</strong> ${escapeHtml(item.reserved_units)} units</p>
+                <p><strong>Updated:</strong> ${escapeHtml(new Date(item.last_updated).toLocaleString())}</p>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Load scoped inventory error:', error);
+        container.innerHTML = '<div class="loading">Failed to load scoped inventory right now.</div>';
+    }
+}
+
+async function handleScopedInventoryUpdate(event) {
+    event.preventDefault();
+    const bloodGroup = document.getElementById('inventoryBloodGroup')?.value || '';
+    const availableUnits = Number.parseInt(document.getElementById('inventoryAvailableUnits')?.value, 10);
+    const reservedUnits = Number.parseInt(document.getElementById('inventoryReservedUnits')?.value, 10);
+    const lowStockThreshold = Number.parseInt(document.getElementById('inventoryLowStockThreshold')?.value, 10);
+
+    if (!bloodGroup || !Number.isInteger(availableUnits) || availableUnits < 0 || !Number.isInteger(reservedUnits) || reservedUnits < 0) {
+        showMessage('Provide valid blood group, available units, and reserved units.', 'warning');
+        return;
+    }
+
+    const payload = buildScopedInventoryPayload({
+        blood_group: bloodGroup,
+        available_units: availableUnits,
+        reserved_units: reservedUnits,
+        low_stock_threshold: Number.isInteger(lowStockThreshold) && lowStockThreshold >= 0
+            ? lowStockThreshold
+            : 10
+    });
+    if (!payload) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/inventory/update', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.message || 'Failed to update inventory scope.', 'error');
+            return;
+        }
+
+        const alertText = result.passive_alerts_sent
+            ? ` Passive alerts sent: ${result.passive_alerts_sent}.`
+            : '';
+        showMessage(`Inventory updated successfully.${alertText}`, 'success');
+        await Promise.all([loadScopedInventory(), loadPersistentNotifications()]);
+    } catch (error) {
+        console.error('Scoped inventory update error:', error);
+        showMessage('Failed to update scoped inventory.', 'error');
+    }
+}
+
+async function handleScopedInventoryOperation(event) {
+    event.preventDefault();
+    const operation = document.getElementById('inventoryOperation')?.value || 'add';
+    const bloodGroup = document.getElementById('inventoryOperationBloodGroup')?.value || '';
+    const units = Number.parseInt(document.getElementById('inventoryOperationUnits')?.value, 10);
+
+    if (!bloodGroup) {
+        showMessage('Select a blood group for inventory operation.', 'warning');
+        return;
+    }
+
+    if (operation !== 'initialize' && (!Number.isInteger(units) || units <= 0)) {
+        showMessage('Units must be a positive integer.', 'warning');
+        return;
+    }
+
+    const payloadBase = operation === 'initialize'
+        ? {
+            blood_group: bloodGroup,
+            available_units: Number.isInteger(units) && units >= 0 ? units : 0,
+            reserved_units: 0
+        }
+        : {
+            blood_group: bloodGroup,
+            units
+        };
+    const payload = buildScopedInventoryPayload(payloadBase);
+    if (!payload) {
+        return;
+    }
+
+    const endpointMap = {
+        add: '/api/inventory/add',
+        reserve: '/api/inventory/reserve',
+        release: '/api/inventory/release',
+        initialize: '/api/inventory/initialize'
+    };
+    const endpoint = endpointMap[operation] || '/api/inventory/add';
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.message || 'Inventory operation failed.', 'error');
+            return;
+        }
+
+        showMessage(result.message || 'Inventory operation completed.', 'success');
+        await loadScopedInventory();
+    } catch (error) {
+        console.error('Scoped inventory operation error:', error);
+        showMessage('Inventory operation failed right now.', 'error');
+    }
+}
+
+function getAdminApiKey() {
+    const node = document.getElementById('adminApiKeyInput');
+    return node ? node.value.trim() : '';
+}
+
+async function loadPendingAuthoritiesForApproval() {
+    const container = document.getElementById('pendingAuthoritiesList');
+    if (!container) {
+        return;
+    }
+
+    const adminKey = getAdminApiKey();
+    if (!adminKey) {
+        container.innerHTML = '<div class="loading">Enter ADMIN_API_KEY to load pending authority accounts.</div>';
+        showMessage('Enter ADMIN_API_KEY first.', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/auth/authorities/pending', {
+            headers: {
+                'x-admin-key': adminKey
+            }
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            container.innerHTML = `<div class="loading">${escapeHtml(result.message || 'Failed to load pending authorities.')}</div>`;
+            return;
+        }
+
+        if (!Array.isArray(result.pending_authorities) || result.pending_authorities.length === 0) {
+            container.innerHTML = '<div class="loading">No pending authority approvals right now.</div>';
+            return;
+        }
+
+        container.innerHTML = result.pending_authorities.map(item => `
+            <div class="authority-item">
+                <h5>${escapeHtml(item.name)} (#${escapeHtml(item.id)})</h5>
+                <p><strong>Role:</strong> ${escapeHtml(roleToLabel(item.role))}</p>
+                <p><strong>Email:</strong> ${escapeHtml(item.email)}</p>
+                <p><strong>License:</strong> ${escapeHtml(item.license_number || 'Not provided')}</p>
+                <div class="action-row">
+                    <button type="button" class="btn-inline success" data-authority-approve-id="${escapeHtml(item.id)}">Approve</button>
+                    <button type="button" class="btn-inline warning" data-authority-reject-id="${escapeHtml(item.id)}">Keep Unverified</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Load pending authorities error:', error);
+        container.innerHTML = '<div class="loading">Failed to load pending authorities right now.</div>';
+    }
+}
+
+async function setAuthorityApprovalStatus(authorityId, isVerified) {
+    const adminKey = getAdminApiKey();
+    if (!adminKey) {
+        showMessage('ADMIN_API_KEY is required for authority approval.', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/auth/authorities/${authorityId}/verify`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-admin-key': adminKey
+            },
+            body: JSON.stringify({
+                is_verified: isVerified
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.message || 'Failed to update authority verification.', 'error');
+            return;
+        }
+
+        showMessage(result.message || 'Authority verification updated.', 'success');
+        await loadPendingAuthoritiesForApproval();
+    } catch (error) {
+        console.error('Set authority approval status error:', error);
+        showMessage('Failed to update authority status right now.', 'error');
+    }
+}
+
+async function handleSaveProfileControls(event) {
+    event.preventDefault();
+    if (!currentUser?.id) {
+        showMessage('Please login again to update profile controls.', 'warning');
+        return;
+    }
+
+    const snoozeDaysNode = document.getElementById('alertSnoozeDays');
+    const donorToggle = document.getElementById('isDonorActive');
+    const snoozeDays = Number.parseInt(snoozeDaysNode?.value || '0', 10);
+    const alertSnoozeUntil = Number.isInteger(snoozeDays) && snoozeDays > 0
+        ? new Date(Date.now() + snoozeDays * 24 * 60 * 60 * 1000).toISOString()
+        : null;
+
+    try {
+        const response = await fetch(`/api/auth/profile/${currentUser.id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                is_donor: donorToggle ? donorToggle.checked : true,
+                alert_snooze_until: alertSnoozeUntil
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.message || 'Failed to save profile controls.', 'error');
+            return;
+        }
+
+        currentUser = normalizeUserId({
+            ...currentUser,
+            is_donor: donorToggle ? donorToggle.checked : currentUser.is_donor,
+            alert_snooze_until: alertSnoozeUntil
+        });
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        renderUserProfile(currentUser);
+        configureRoleBasedSections();
+        if (alertSnoozeUntil) {
+            stopEmergencyAlerts();
+            const alertsContainer = document.getElementById('liveAlerts');
+            if (alertsContainer) {
+                alertsContainer.innerHTML = '<div class="loading">Emergency alerts are snoozed for your profile.</div>';
+            }
+        } else {
+            startEmergencyAlerts();
+        }
+        showMessage('Profile controls updated successfully.', 'success');
+    } catch (error) {
+        console.error('Save profile controls error:', error);
+        showMessage('Failed to save profile controls right now.', 'error');
+    }
+}
+
+async function handleDeleteProfile() {
+    if (!currentUser?.id) {
+        return;
+    }
+
+    const confirmed = window.confirm('This will delete your profile from active use. Continue?');
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/auth/profile/${currentUser.id}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                actor_user_id: currentUser.id
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            showMessage(result.message || 'Failed to delete profile.', 'error');
+            return;
+        }
+
+        showMessage('Profile deleted successfully. Logging out...', 'success');
+        setTimeout(() => logout(), 1000);
+    } catch (error) {
+        console.error('Delete profile error:', error);
+        showMessage('Unable to delete profile right now.', 'error');
+    }
+}
+
 async function loadUserProfile() {
     try {
         if (!currentUser || !currentUser.id) {
@@ -291,9 +1246,10 @@ async function loadUserProfile() {
             return false;
         }
 
-        currentUser = { ...currentUser, ...result.user };
+        currentUser = normalizeUserId({ ...currentUser, ...result.user });
         localStorage.setItem('currentUser', JSON.stringify(currentUser));
         renderUserProfile(currentUser);
+        configureRoleBasedSections();
 
         return true;
     } catch (error) {
@@ -406,6 +1362,7 @@ async function loadRecentRequests() {
                     <p><strong>Units Required:</strong> ${request.units_required}</p>
                     <p><strong>Hospital:</strong> ${request.hospital_name || 'Not specified'}</p>
                     <p><strong>Urgency:</strong> ${request.urgency_level}</p>
+                    <p><strong>Verification:</strong> ${request.verification_status || 'Not Required'}</p>
                     <span class="status ${request.status.toLowerCase()}">${request.status}</span>
                 </div>
             `).join('');
@@ -435,6 +1392,13 @@ async function loadRecentDonations() {
 
         if (result.success && result.donations && result.donations.length > 0) {
             const recentDonations = result.donations.slice(0, 5);
+            const latestDonationWithPass = result.donations.find(donation => donation.verification_qr_token);
+            setDonationPassPanel(latestDonationWithPass
+                ? {
+                    verification_qr_token: latestDonationWithPass.verification_qr_token,
+                    expires_at: latestDonationWithPass.verification_qr_expires_at || null
+                }
+                : null);
             container.innerHTML = recentDonations.map(donation => `
                 <div class="donation-item">
                     <h4>${escapeHtml(currentUser.name || 'My Donation')}</h4>
@@ -447,6 +1411,7 @@ async function loadRecentDonations() {
                 </div>
             `).join('');
         } else {
+            setDonationPassPanel(null);
             container.innerHTML = '<div class="loading">You have not donated yet. Schedule your first donation.</div>';
         }
     } catch (error) {
@@ -1117,6 +2082,13 @@ async function handleBloodRequest(e) {
 
     const formData = new FormData(e.target);
     const urgencyLevel = formData.get('urgencyLevel');
+    const requisitionImageUrl = String(formData.get('requisitionImageUrl') || '').trim();
+    const needsVerification = urgencyLevel === 'High' || urgencyLevel === 'Emergency';
+    if (needsVerification && !requisitionImageUrl) {
+        showMessage('Doctor requisition image URL is required for High or Emergency requests.', 'warning');
+        return;
+    }
+
     const requestData = {
         requester_id: currentUser.id,
         patient_name: formData.get('patientName'),
@@ -1126,6 +2098,7 @@ async function handleBloodRequest(e) {
         urgency_level: urgencyLevel,
         reason: formData.get('reason'),
         required_date: formData.get('requiredDate'),
+        requisition_image_url: requisitionImageUrl || null,
         latitude: currentUser.latitude || null,
         longitude: currentUser.longitude || null,
         search_radius_km: urgencyLevel === 'Emergency' ? 5 : 10
@@ -1144,10 +2117,17 @@ async function handleBloodRequest(e) {
 
         if (result.success) {
             const alertSuffix = result.alerts_sent ? ` (${result.alerts_sent} donors notified)` : '';
-            showMessage(`Blood request created successfully${alertSuffix}`, 'success');
+            const verificationText = result.verification_required
+                ? ' Request queued for authority verification.'
+                : '';
+            showMessage(`Blood request created successfully${alertSuffix}.${verificationText}`.trim(), 'success');
             closeModal('requestModal');
             e.target.reset();
+            updateRequestVerificationHint();
             await Promise.all([loadRecentRequests(), loadStatistics()]);
+            if (isVerifiedAuthorityClient(currentUser)) {
+                await loadPendingVerificationRequests();
+            }
         } else {
             showMessage(result.message || 'Failed to create blood request', 'error');
         }
@@ -1161,8 +2141,10 @@ async function handleDonation(e) {
     e.preventDefault();
 
     const formData = new FormData(e.target);
+    const requestId = parsePositiveInt(formData.get('requestId'));
     const donationData = {
         donor_id: currentUser.id,
+        request_id: requestId || null,
         donation_date: formData.get('donationDate'),
         blood_group: currentUser.blood_group,
         units_donated: Number.parseInt(formData.get('unitsDonated'), 10),
@@ -1182,6 +2164,9 @@ async function handleDonation(e) {
         const result = await response.json();
 
         if (result.success) {
+            if (result.donation_pass && result.donation_pass.verification_qr_token) {
+                setDonationPassPanel(result.donation_pass);
+            }
             showMessage('Blood donation scheduled successfully!', 'success');
             closeModal('donationModal');
             e.target.reset();
@@ -1196,6 +2181,15 @@ async function handleDonation(e) {
 }
 
 async function viewInventory() {
+    if (isVerifiedAuthorityClient(currentUser)) {
+        await loadScopedInventory();
+        const inventorySection = document.getElementById('inventoryManagementSection');
+        if (inventorySection) {
+            inventorySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        return;
+    }
+
     try {
         const response = await fetch('/api/inventory/all');
         const result = await response.json();

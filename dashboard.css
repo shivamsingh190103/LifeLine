@@ -291,7 +291,11 @@ main {
 .notifications-section,
 .location-search-section,
 .superheroes-section,
-.feedback-section {
+.feedback-section,
+.authority-section,
+.inventory-management-section,
+.admin-approval-section,
+.profile-controls-section {
     background: white;
     border-radius: 15px;
     padding: 2rem;
@@ -305,7 +309,11 @@ main {
 .notifications-section h3,
 .location-search-section h3,
 .superheroes-section h3,
-.feedback-section h3 {
+.feedback-section h3,
+.authority-section h3,
+.inventory-management-section h3,
+.admin-approval-section h3,
+.profile-controls-section h3 {
     margin-bottom: 1.5rem;
     color: #333;
     font-size: 1.5rem;
@@ -367,6 +375,31 @@ main {
 .notification-item p {
     color: #2b2f45;
     font-size: 0.95rem;
+}
+
+.notification-item.is-read {
+    opacity: 0.85;
+    background: #f8f9fb;
+}
+
+.notification-actions {
+    margin-top: 0.5rem;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.mark-read-btn {
+    border: 1px solid #d4d9f5;
+    background: white;
+    color: #4253a6;
+    padding: 0.35rem 0.65rem;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.mark-read-btn:hover {
+    background: #edf0ff;
 }
 
 .location-search-grid {
@@ -609,6 +642,174 @@ main {
     justify-content: space-between;
     gap: 1rem;
     margin-bottom: 1.5rem;
+}
+
+.section-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.compact-head {
+    margin-bottom: 0.8rem;
+}
+
+.section-note {
+    margin-top: -0.8rem;
+    margin-bottom: 1rem;
+    color: #596082;
+    font-size: 0.9rem;
+}
+
+.scope-pill {
+    background: #edf0ff;
+    color: #3f4d94;
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.authority-grid,
+.inventory-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+}
+
+.authority-card {
+    background: #f8f9ff;
+    border: 1px solid #edf0ff;
+    border-radius: 12px;
+    padding: 1rem;
+}
+
+.authority-card h4 {
+    color: #2f3558;
+    margin-bottom: 0.7rem;
+}
+
+.authority-list {
+    display: grid;
+    gap: 0.7rem;
+}
+
+.authority-item {
+    border-radius: 10px;
+    border: 1px solid #e6e9fb;
+    background: white;
+    padding: 0.85rem;
+}
+
+.authority-item h5 {
+    margin-bottom: 0.4rem;
+    color: #2f3558;
+}
+
+.authority-item p {
+    margin: 0.2rem 0;
+    color: #555f7c;
+    font-size: 0.9rem;
+}
+
+.authority-item .action-row {
+    margin-top: 0.6rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.btn-inline {
+    border: none;
+    border-radius: 8px;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-inline.success {
+    background: #2f9e44;
+    color: white;
+}
+
+.btn-inline.warning {
+    background: #f08c00;
+    color: white;
+}
+
+.btn-inline.info {
+    background: #445ed8;
+    color: white;
+}
+
+.info-box {
+    margin-top: 0.7rem;
+    border-radius: 10px;
+    border: 1px dashed #ccd3f3;
+    background: #fbfcff;
+    color: #515b86;
+    padding: 0.7rem;
+    font-size: 0.88rem;
+    overflow-wrap: anywhere;
+}
+
+.inventory-item {
+    border-radius: 10px;
+    background: #f8f9fa;
+    border-left: 4px solid #667eea;
+    padding: 0.85rem;
+}
+
+.donation-pass-panel {
+    margin-bottom: 1rem;
+    border-radius: 12px;
+    border: 1px solid #eceffd;
+    background: #f7f8ff;
+    padding: 0.85rem 1rem;
+}
+
+.donation-pass-panel h4 {
+    margin-bottom: 0.35rem;
+    color: #364283;
+}
+
+.donation-pass-panel p {
+    color: #556;
+    overflow-wrap: anywhere;
+}
+
+.profile-controls-form {
+    max-width: 520px;
+}
+
+.toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-weight: 600;
+    color: #2f3558;
+}
+
+.toggle-row input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+
+.btn-danger {
+    margin-top: 0.9rem;
+    background: #d6336c;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.2rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.btn-danger:hover {
+    background: #c2255c;
 }
 
 .compact {
@@ -896,13 +1097,21 @@ main {
     .notifications-section,
     .location-search-section,
     .superheroes-section,
-    .feedback-section {
+    .feedback-section,
+    .authority-section,
+    .inventory-management-section,
+    .admin-approval-section,
+    .profile-controls-section {
         padding: 1.5rem;
     }
 
     .section-head {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .section-actions {
+        width: 100%;
     }
 
     nav {
@@ -948,6 +1157,11 @@ main {
     }
 
     .location-search-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .authority-grid,
+    .inventory-grid {
         grid-template-columns: 1fr;
     }
 }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href='dashboard.css?v=20260218m'>
+    <link rel="stylesheet" href='dashboard.css?v=20260218r'>
     <link rel="icon" href='./Images/bb_logo(black).png' type="image/png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"/>
     <title>BloodBank Dashboard</title>
@@ -55,6 +55,14 @@
                         <div class="detail-item">
                             <span class="label">Phone:</span>
                             <span id="userPhone" class="value">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Role:</span>
+                            <span id="userRole" class="value">-</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="label">Verification:</span>
+                            <span id="userVerification" class="value">-</span>
                         </div>
                     </div>
                     <div class="profile-actions">
@@ -148,10 +156,124 @@
             <section class="notifications-section" id="notificationsSection">
                 <div class="section-head">
                     <h3>Notification Center</h3>
-                    <button class="btn-secondary compact" id="clearNotificationsBtn" type="button">Clear</button>
+                    <div class="section-actions">
+                        <button class="btn-secondary compact" id="refreshServerNotificationsBtn" type="button">Refresh Server</button>
+                        <button class="btn-secondary compact" id="clearNotificationsBtn" type="button">Clear Local</button>
+                    </div>
                 </div>
+                <p class="section-note">Server notifications are stored in database and can be marked as read.</p>
+                <div class="notifications-container" id="persistentNotificationFeed">
+                    <div class="loading">Loading server notifications...</div>
+                </div>
+                <p class="section-note">In-app notifications are local to this device.</p>
                 <div class="notifications-container" id="notificationFeed">
                     <div class="loading">No notifications yet.</div>
+                </div>
+            </section>
+
+            <!-- Authority Console -->
+            <section class="authority-section" id="authorityConsoleSection" hidden>
+                <div class="section-head">
+                    <h3>Authority Console</h3>
+                    <span id="authorityScopeLabel" class="scope-pill">Authority tools</span>
+                </div>
+                <p class="section-note">Only verified hospital, blood bank, doctor, and admin accounts can use this section.</p>
+                <div class="authority-grid">
+                    <div class="authority-card">
+                        <div class="section-head compact-head">
+                            <h4>Pending Emergency Verifications</h4>
+                            <button class="btn-secondary compact" id="refreshPendingVerificationBtn" type="button">Refresh</button>
+                        </div>
+                        <div id="pendingVerificationList" class="authority-list">
+                            <div class="loading">No pending verification items.</div>
+                        </div>
+                    </div>
+                    <div class="authority-card">
+                        <h4>Complete Donation by QR Token</h4>
+                        <form id="completeDonationByQrForm" class="search-form">
+                            <input type="text" id="verificationQrToken" placeholder="Paste verification_qr_token" required>
+                            <input type="text" id="verificationCompletionNotes" placeholder="Completion notes (optional)">
+                            <button type="submit" class="btn-primary">Complete Donation</button>
+                        </form>
+                        <div id="qrCompletionResult" class="info-box">Scan token from donor dashboard and complete verified donation.</div>
+                    </div>
+                    <div class="authority-card">
+                        <h4>Generate Private Call Link (Jitsi)</h4>
+                        <form id="generateCallLinkForm" class="search-form">
+                            <input type="number" id="callLinkRequestId" min="1" placeholder="Blood request ID" required>
+                            <button type="submit" class="btn-primary">Generate Call Link</button>
+                        </form>
+                        <div id="callLinkResult" class="info-box">No call link generated yet.</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Scoped Inventory Manager -->
+            <section class="inventory-management-section" id="inventoryManagementSection" hidden>
+                <div class="section-head">
+                    <h3>Inventory Manager</h3>
+                    <button class="btn-secondary compact" id="refreshScopedInventoryBtn" type="button">Refresh</button>
+                </div>
+                <p class="section-note" id="inventoryScopeText">Manage inventory for your authority scope.</p>
+                <div class="inventory-grid">
+                    <form id="inventoryUpdateForm" class="search-form">
+                        <h4>Snapshot Update</h4>
+                        <select id="inventoryBloodGroup" required>
+                            <option value="" disabled selected>Select Blood Group</option>
+                            <option value="A+">A+</option>
+                            <option value="A-">A-</option>
+                            <option value="B+">B+</option>
+                            <option value="B-">B-</option>
+                            <option value="AB+">AB+</option>
+                            <option value="AB-">AB-</option>
+                            <option value="O+">O+</option>
+                            <option value="O-">O-</option>
+                        </select>
+                        <input type="number" id="inventoryAvailableUnits" min="0" placeholder="Available units" required>
+                        <input type="number" id="inventoryReservedUnits" min="0" placeholder="Reserved units" required>
+                        <input type="number" id="inventoryLowStockThreshold" min="0" value="10" placeholder="Low stock threshold">
+                        <button type="submit" class="btn-primary">Update Inventory</button>
+                    </form>
+                    <form id="inventoryOperationForm" class="search-form">
+                        <h4>Quick Operations</h4>
+                        <select id="inventoryOperation" required>
+                            <option value="add">Add Units</option>
+                            <option value="reserve">Reserve Units</option>
+                            <option value="release">Release Units</option>
+                            <option value="initialize">Initialize Group</option>
+                        </select>
+                        <select id="inventoryOperationBloodGroup" required>
+                            <option value="" disabled selected>Select Blood Group</option>
+                            <option value="A+">A+</option>
+                            <option value="A-">A-</option>
+                            <option value="B+">B+</option>
+                            <option value="B-">B-</option>
+                            <option value="AB+">AB+</option>
+                            <option value="AB-">AB-</option>
+                            <option value="O+">O+</option>
+                            <option value="O-">O-</option>
+                        </select>
+                        <input type="number" id="inventoryOperationUnits" min="0" value="1" placeholder="Units">
+                        <button type="submit" class="btn-primary">Run Operation</button>
+                    </form>
+                </div>
+                <div class="requests-container" id="scopedInventoryList">
+                    <div class="loading">Inventory scope data will appear here.</div>
+                </div>
+            </section>
+
+            <!-- Admin Authority Approval -->
+            <section class="admin-approval-section">
+                <div class="section-head">
+                    <h3>Authority Account Approval</h3>
+                    <button class="btn-secondary compact" id="loadPendingAuthoritiesBtn" type="button">Load Pending</button>
+                </div>
+                <p class="section-note">For app owner/admin only. Add your ADMIN_API_KEY to approve hospitals, blood banks, and doctors.</p>
+                <div class="search-form">
+                    <input type="password" id="adminApiKeyInput" placeholder="Enter ADMIN_API_KEY to manage approvals">
+                </div>
+                <div class="requests-container" id="pendingAuthoritiesList">
+                    <div class="loading">No authority approval data loaded yet.</div>
                 </div>
             </section>
 
@@ -292,9 +414,33 @@
             <!-- Recent Donations -->
             <section class="donations-section">
                 <h3>My Recent Donations</h3>
+                <div class="donation-pass-panel" id="latestDonationPassPanel">
+                    <h4>Latest Donation Pass (QR Token)</h4>
+                    <p id="latestDonationPassText">Schedule a donation to generate your verification pass.</p>
+                </div>
                 <div class="donations-container" id="recentDonations">
                     <div class="loading">Loading donations...</div>
                 </div>
+            </section>
+
+            <!-- Profile Controls -->
+            <section class="profile-controls-section">
+                <h3>Profile Controls</h3>
+                <form id="profileControlsForm" class="search-form profile-controls-form">
+                    <label for="alertSnoozeDays">Snooze emergency alerts</label>
+                    <select id="alertSnoozeDays" name="alertSnoozeDays">
+                        <option value="0">No Snooze</option>
+                        <option value="1">1 Day</option>
+                        <option value="7">7 Days</option>
+                        <option value="30">30 Days</option>
+                    </select>
+                    <label class="toggle-row" for="isDonorActive">
+                        <input type="checkbox" id="isDonorActive" name="isDonorActive">
+                        I am currently available as a donor
+                    </label>
+                    <button type="submit" class="btn-primary">Save Profile Controls</button>
+                </form>
+                <button type="button" class="btn-danger" id="deleteProfileBtn">Delete My Profile</button>
             </section>
         </div>
     </main>
@@ -345,9 +491,14 @@
                     <textarea id="reason" name="reason" rows="3"></textarea>
                 </div>
                 <div class="form-group">
+                    <label for="requisitionImageUrl">Doctor Requisition Image URL (required for High/Emergency)</label>
+                    <input type="url" id="requisitionImageUrl" name="requisitionImageUrl" placeholder="https://example.com/requisition.jpg">
+                </div>
+                <div class="form-group">
                     <label for="requiredDate">Required Date</label>
                     <input type="date" id="requiredDate" name="requiredDate">
                 </div>
+                <p class="section-note" id="requestVerificationNote">High and Emergency requests are queued for medical verification before live broadcast.</p>
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">Submit Request</button>
                     <button type="button" class="btn-secondary" onclick="closeModal('requestModal')">Cancel</button>
@@ -371,6 +522,10 @@
                     <input type="text" id="donationCenter" name="donationCenter">
                 </div>
                 <div class="form-group">
+                    <label for="donationRequestId">Related Request ID (optional)</label>
+                    <input type="number" id="donationRequestId" name="requestId" min="1">
+                </div>
+                <div class="form-group">
                     <label for="unitsDonated">Units to Donate</label>
                     <input type="number" id="unitsDonated" name="unitsDonated" min="1" value="1">
                 </div>
@@ -386,6 +541,6 @@
         </div>
     </div>
 
-    <script src="dashboard.js?v=20260218m"></script>
+    <script src="dashboard.js?v=20260218r"></script>
 </body>
 </html>

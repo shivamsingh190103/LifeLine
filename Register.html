@@ -5,7 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Create Account - BloodBank</title>
-    <link rel="stylesheet" href="Register.css?v=20260218m">
+    <link rel="stylesheet" href="Register.css?v=20260218r">
     <link rel="icon" href="./Images/bb_logo(black).png" type="image/png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
 </head>
@@ -48,6 +48,28 @@
                 <div class="input-with-icon">
                     <i class="fas fa-envelope form-icon"></i>
                     <input type="email" name="email" placeholder="Email Address" autocomplete="email" required>
+                </div>
+
+                <div class="input-with-icon">
+                    <i class="fas fa-user-tag form-icon"></i>
+                    <select name="role" id="roleType" required>
+                        <option value="user" selected>Register as Donor User</option>
+                        <option value="hospital">Register as Hospital</option>
+                        <option value="blood_bank">Register as Blood Bank</option>
+                        <option value="doctor">Register as Doctor</option>
+                    </select>
+                </div>
+
+                <div class="authority-fields" id="authorityFields" hidden>
+                    <div class="input-with-icon">
+                        <i class="fas fa-id-card form-icon"></i>
+                        <input type="text" name="license_number" id="licenseNumber" placeholder="License Number">
+                    </div>
+                    <div class="input-with-icon">
+                        <i class="fas fa-hospital form-icon"></i>
+                        <input type="number" name="facility_id" id="facilityId" min="1" placeholder="Facility ID (for doctor only, optional)">
+                    </div>
+                    <p class="field-note">Authority accounts require admin verification after email verification.</p>
                 </div>
 
                 <div class="input-with-icon">
@@ -99,6 +121,6 @@
     </section>
 </main>
 
-<script src="./Register.js?v=20260218m"></script>
+<script src="./Register.js?v=20260218r"></script>
 </body>
 </html>

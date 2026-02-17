@@ -4,6 +4,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const safetyDiv = document.querySelector('.safety');
     const skipButton = document.getElementById('skipRegistrationBtn');
     const phoneInput = document.querySelector('input[name="phone"]');
+    const roleSelect = document.getElementById('roleType');
+    const authorityFields = document.getElementById('authorityFields');
+    const licenseInput = document.getElementById('licenseNumber');
+    const facilityInput = document.getElementById('facilityId');
 
     if (!registrationForm || !passwordInput || !safetyDiv) {
         return;
@@ -16,6 +20,35 @@ document.addEventListener('DOMContentLoaded', () => {
         phoneInput.addEventListener('input', () => {
             phoneInput.value = phoneInput.value.replace(/\D/g, '').slice(0, 10);
         });
+    }
+
+    const syncAuthorityFields = () => {
+        const role = roleSelect ? String(roleSelect.value || 'user') : 'user';
+        const isAuthorityRole = role === 'hospital' || role === 'blood_bank' || role === 'doctor';
+
+        if (authorityFields) {
+            authorityFields.hidden = !isAuthorityRole;
+        }
+
+        if (licenseInput) {
+            licenseInput.required = isAuthorityRole;
+        }
+
+        if (facilityInput) {
+            if (role === 'doctor') {
+                facilityInput.disabled = false;
+                facilityInput.placeholder = 'Facility ID (required for doctor inventory scope)';
+            } else {
+                facilityInput.value = '';
+                facilityInput.disabled = true;
+                facilityInput.placeholder = 'Facility ID (for doctor only, optional)';
+            }
+        }
+    };
+
+    if (roleSelect) {
+        roleSelect.addEventListener('change', syncAuthorityFields);
+        syncAuthorityFields();
     }
 
     passwordInput.addEventListener('input', () => {
@@ -58,6 +91,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const formData = new FormData(registrationForm);
         const phoneDigits = String(formData.get('phone') || '').replace(/\D/g, '');
+        const role = String(formData.get('role') || 'user').trim();
+        const licenseNumber = String(formData.get('license_number') || '').trim();
+        const facilityIdRaw = String(formData.get('facility_id') || '').trim();
+        const isAuthorityRole = role === 'hospital' || role === 'blood_bank' || role === 'doctor';
+        const facilityId = facilityIdRaw ? Number.parseInt(facilityIdRaw, 10) : null;
+        const isDonorByRole = role === 'user' || role === 'doctor';
         const userData = {
             name: String(formData.get('name') || '').trim(),
             email: String(formData.get('email') || '').trim(),
@@ -69,7 +108,10 @@ document.addEventListener('DOMContentLoaded', () => {
             state: String(formData.get('state') || '').trim(),
             latitude: formData.get('latitude') || null,
             longitude: formData.get('longitude') || null,
-            is_donor: true
+            role,
+            license_number: isAuthorityRole ? licenseNumber : null,
+            facility_id: role === 'doctor' && Number.isInteger(facilityId) && facilityId > 0 ? facilityId : null,
+            is_donor: isDonorByRole
         };
 
         if (!userData.name || !userData.email || !userData.password || !userData.blood_group || !userData.phone || !userData.location || !userData.city || !userData.state) {
@@ -93,6 +135,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        if (isAuthorityRole && !licenseNumber) {
+            showMessage('License number is required for hospital, blood bank, and doctor accounts', 'error');
+            return;
+        }
+
+        if (role === 'doctor' && (!Number.isInteger(facilityId) || facilityId <= 0)) {
+            showMessage('Doctor account requires a valid facility ID', 'error');
+            return;
+        }
+
         try {
             showMessage('Creating account...', 'info');
 
@@ -110,9 +162,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            const successMessage = result.requires_verification
-                ? 'Account created. Please verify your email, then login.'
-                : 'Account created successfully! Redirecting to login...';
+            const successMessage = result.authority_verification_pending
+                ? 'Authority account created. Verify email, then wait for admin approval before login.'
+                : (result.requires_verification
+                    ? 'Account created. Please verify your email, then login.'
+                    : 'Account created successfully! Redirecting to login...');
             showMessage(successMessage, 'success');
 
             localStorage.setItem('registeredUser', JSON.stringify({
