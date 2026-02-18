@@ -1079,6 +1079,22 @@ router.get('/profile/:id', async (req, res) => {
       });
     }
 
+    const actor = await resolveActorUser(req, { required: true });
+    if (actor.message) {
+      return res.status(actor.status).json({
+        success: false,
+        message: actor.message
+      });
+    }
+
+    const isAdminActor = normalizeRole(actor.user.role) === ROLES.ADMIN || hasValidAdminKey(req);
+    if (actor.user.id !== userId && !isAdminActor) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only view your own profile'
+      });
+    }
+
     const [useGeoColumns, useAuthorityColumns] = await Promise.all([
       hasUserGeoColumns(),
       hasAuthorityColumns()
@@ -1122,6 +1138,22 @@ router.put('/profile/:id', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid user ID'
+      });
+    }
+
+    const actor = await resolveActorUser(req, { required: true });
+    if (actor.message) {
+      return res.status(actor.status).json({
+        success: false,
+        message: actor.message
+      });
+    }
+
+    const isAdminActor = normalizeRole(actor.user.role) === ROLES.ADMIN || hasValidAdminKey(req);
+    if (actor.user.id !== userId && !isAdminActor) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own profile'
       });
     }
 
@@ -1491,18 +1523,23 @@ router.put('/authorities/:id/verify', async (req, res) => {
 // Get all users (for admin/dashboard purposes)
 router.get('/users', async (req, res) => {
   try {
-    const [useGeoColumns, useAuthorityColumns] = await Promise.all([
-      hasUserGeoColumns(),
-      hasAuthorityColumns()
-    ]);
+    const actor = await resolveActorUser(req, { required: true });
+    if (actor.message) {
+      return res.status(actor.status).json({
+        success: false,
+        message: actor.message
+      });
+    }
+
+    const useAuthorityColumns = await hasAuthorityColumns();
     const [users] = await pool.execute(
-      `SELECT id, name, email, blood_group, location, city, state,
-              ${useGeoColumns ? 'latitude, longitude' : 'NULL as latitude, NULL as longitude'},
+      `SELECT id, name, blood_group, location, city, state,
               ${useAuthorityColumns
     ? 'role, is_verified, license_number, facility_id, is_active, alert_snooze_until'
     : `'user' AS role, TRUE AS is_verified, NULL::VARCHAR AS license_number, NULL::BIGINT AS facility_id, TRUE AS is_active, NULL::TIMESTAMPTZ AS alert_snooze_until`},
               is_donor, is_recipient, last_donation_date
        FROM users
+       WHERE is_active = TRUE
        ORDER BY created_at DESC`
     );
 

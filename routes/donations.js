@@ -660,7 +660,7 @@ router.post('/complete-by-token', async (req, res) => {
 router.get('/all', async (req, res) => {
   try {
     const [donations] = await pool.execute(
-      `SELECT bd.*, u.name as donor_name, u.email as donor_email, u.phone as donor_phone,
+      `SELECT bd.*, u.name as donor_name,
               br.patient_name, br.hospital_name
        FROM blood_donations bd 
        LEFT JOIN users u ON bd.donor_id = u.id 
@@ -728,7 +728,7 @@ router.get('/by-blood-group/:bloodGroup', async (req, res) => {
     }
 
     const [donations] = await pool.execute(
-      `SELECT bd.*, u.name as donor_name, u.email as donor_email
+      `SELECT bd.*, u.name as donor_name
        FROM blood_donations bd 
        LEFT JOIN users u ON bd.donor_id = u.id 
        WHERE bd.blood_group = ? AND bd.status = 'Completed'

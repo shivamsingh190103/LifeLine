@@ -9,6 +9,7 @@ let attemptedLocationCapture = false;
 let notificationItems = [];
 let persistentNotifications = [];
 let myFeedback = null;
+let pendingSecureDonorTarget = null;
 const seenEmergencyAlerts = new Set();
 
 const NOTIFICATION_STORAGE_KEY = 'appNotifications';
@@ -329,9 +330,14 @@ function setupEventListeners() {
     const persistentNotificationFeed = document.getElementById('persistentNotificationFeed');
     const pendingVerificationList = document.getElementById('pendingVerificationList');
     const pendingAuthoritiesList = document.getElementById('pendingAuthoritiesList');
+    const donorLocationResults = document.getElementById('donorLocationResults');
+    const nearbyDonorsContainer = document.getElementById('nearbyDonors');
 
     if (requestBtn) {
-        requestBtn.addEventListener('click', () => openModal('requestModal'));
+        requestBtn.addEventListener('click', () => {
+            pendingSecureDonorTarget = null;
+            openModal('requestModal');
+        });
     }
     if (donationBtn) {
         donationBtn.addEventListener('click', () => openModal('donationModal'));
@@ -490,6 +496,12 @@ function setupEventListeners() {
     if (receiverLocationSearchForm) {
         receiverLocationSearchForm.addEventListener('submit', handleReceiverLocationSearch);
     }
+    if (donorLocationResults) {
+        donorLocationResults.addEventListener('click', handleDonorSecureConnectClick);
+    }
+    if (nearbyDonorsContainer) {
+        nearbyDonorsContainer.addEventListener('click', handleDonorSecureConnectClick);
+    }
     if (feedbackForm) {
         feedbackForm.addEventListener('submit', handleFeedbackSubmit);
     }
@@ -631,6 +643,90 @@ function setDonationPassPanel(passData = null) {
         ? new Date(passData.expires_at).toLocaleString()
         : 'Not set';
     passTextNode.textContent = `Token: ${passData.verification_qr_token} | Expires: ${expiresLabel}`;
+}
+
+function getTodayIsoDate() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function parseSecureDonorTargetFromElement(element) {
+    if (!(element instanceof HTMLElement)) {
+        return null;
+    }
+
+    const donorId = parsePositiveInt(element.dataset.secureConnectDonorId);
+    if (!donorId) {
+        return null;
+    }
+
+    return {
+        donorId,
+        donorName: String(element.dataset.secureConnectDonorName || 'Nearby donor').trim() || 'Nearby donor',
+        bloodGroup: String(element.dataset.secureConnectBloodGroup || '').trim().toUpperCase(),
+        locationLabel: String(element.dataset.secureConnectLocation || 'your area').trim() || 'your area'
+    };
+}
+
+function prefillBloodRequestFormForSecureTarget(target) {
+    const patientNameInput = document.getElementById('patientName');
+    const bloodGroupInput = document.getElementById('bloodGroup');
+    const unitsRequiredInput = document.getElementById('unitsRequired');
+    const urgencyLevelInput = document.getElementById('urgencyLevel');
+    const reasonInput = document.getElementById('reason');
+    const requiredDateInput = document.getElementById('requiredDate');
+
+    if (patientNameInput && !patientNameInput.value.trim()) {
+        const fallbackName = currentUser?.name ? `${currentUser.name} (self/family)` : 'Patient Name';
+        patientNameInput.value = fallbackName;
+    }
+
+    if (bloodGroupInput && target.bloodGroup) {
+        bloodGroupInput.value = target.bloodGroup;
+    }
+
+    if (unitsRequiredInput && !unitsRequiredInput.value) {
+        unitsRequiredInput.value = '1';
+    }
+
+    if (urgencyLevelInput && !urgencyLevelInput.value) {
+        urgencyLevelInput.value = 'Medium';
+    }
+
+    if (requiredDateInput && !requiredDateInput.value) {
+        requiredDateInput.value = getTodayIsoDate();
+    }
+
+    if (reasonInput && !reasonInput.value.trim()) {
+        reasonInput.value = `Need ${target.bloodGroup || 'matching'} donor support near ${target.locationLabel}.`;
+    }
+
+    updateRequestVerificationHint();
+}
+
+function handleDonorSecureConnectClick(event) {
+    const source = event.target;
+    if (!(source instanceof Element)) {
+        return;
+    }
+
+    const button = source.closest('[data-secure-connect-donor-id]');
+    if (!(button instanceof HTMLElement)) {
+        return;
+    }
+
+    const target = parseSecureDonorTargetFromElement(button);
+    if (!target) {
+        showMessage('Invalid donor match selected.', 'warning');
+        return;
+    }
+
+    pendingSecureDonorTarget = target;
+    prefillBloodRequestFormForSecureTarget(target);
+    openModal('requestModal');
+    showMessage(
+        `Request form prefilled for ${target.donorName}. Submit to create a private request and secure call link.`,
+        'info'
+    );
 }
 
 async function loadPersistentNotifications() {
@@ -794,35 +890,59 @@ async function handleVerifyBroadcastAction(requestId, approve) {
     }
 }
 
-async function generateCallLinkForRequest(requestId) {
+async function generateCallLinkForRequest(requestId, options = {}) {
+    const notifyUserId = parsePositiveInt(options.notifyUserId);
+    const suppressSuccessToast = Boolean(options.suppressSuccessToast);
+    const successMessage = typeof options.successMessage === 'string' ? options.successMessage : 'Private call link generated.';
     const callLinkResult = document.getElementById('callLinkResult');
     if (!callLinkResult) {
-        return;
+        return {
+            success: false,
+            message: 'Call link panel is unavailable'
+        };
     }
 
     try {
+        const payload = {
+            actor_user_id: currentUser.id
+        };
+        if (notifyUserId) {
+            payload.notify_user_id = notifyUserId;
+        }
+
         const response = await fetch(`/api/blood-requests/${requestId}/call-link`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                actor_user_id: currentUser.id
-            })
+            body: JSON.stringify(payload)
         });
         const result = await response.json();
         if (!response.ok || !result.success) {
             callLinkResult.textContent = result.message || 'Failed to generate call link';
             showMessage(result.message || 'Failed to generate call link', 'error');
-            return;
+            return {
+                success: false,
+                message: result.message || 'Failed to generate call link'
+            };
         }
 
         callLinkResult.innerHTML = `Request #${escapeHtml(result.request_id)} call link: <a href="${escapeHtml(result.call_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(result.call_url)}</a>`;
-        showMessage('Private call link generated.', 'success');
+        if (!suppressSuccessToast) {
+            showMessage(successMessage, 'success');
+        }
+        return {
+            success: true,
+            result
+        };
     } catch (error) {
         console.error('Generate call link error:', error);
         callLinkResult.textContent = 'Failed to generate call link right now.';
         showMessage('Failed to generate call link right now.', 'error');
+        return {
+            success: false,
+            message: 'Failed to generate call link right now.'
+        };
     }
 }
 
@@ -1154,6 +1274,7 @@ async function handleSaveProfileControls(event) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
+                actor_user_id: currentUser.id,
                 is_donor: donorToggle ? donorToggle.checked : true,
                 alert_snooze_until: alertSnoozeUntil
             })
@@ -1228,7 +1349,7 @@ async function loadUserProfile() {
             return false;
         }
 
-        const response = await fetch(`/api/auth/profile/${currentUser.id}`);
+        const response = await fetch(`/api/auth/profile/${currentUser.id}?actor_user_id=${encodeURIComponent(currentUser.id)}`);
         let result = null;
         try {
             result = await response.json();
@@ -1236,7 +1357,7 @@ async function loadUserProfile() {
             result = { success: false, message: 'Unexpected response from profile API' };
         }
 
-        if (response.status === 400 || response.status === 401 || response.status === 404) {
+        if (response.status === 400 || response.status === 401 || response.status === 403 || response.status === 404) {
             showMessage('Session expired. Please login again.', 'warning');
             setTimeout(() => logout(), 1200);
             return false;
@@ -1304,7 +1425,11 @@ async function syncCurrentLocation({ silent = true, force = false } = {}) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ latitude, longitude })
+            body: JSON.stringify({
+                actor_user_id: currentUser.id,
+                latitude,
+                longitude
+            })
         });
 
         if (!updateResponse.ok && !silent) {
@@ -1331,7 +1456,7 @@ async function loadStatistics() {
         const urgentResponse = await fetch('/api/blood-requests/urgent/all');
         const urgentData = await urgentResponse.json();
 
-        const donorsResponse = await fetch('/api/auth/users');
+        const donorsResponse = await fetch(`/api/auth/users?actor_user_id=${encodeURIComponent(currentUser.id)}`);
         const donorsData = await donorsResponse.json();
 
         document.getElementById('totalDonations').textContent = donationStats.success ? donationStats.statistics.totalDonations : 0;
@@ -1461,11 +1586,22 @@ async function loadNearbyDonors() {
 
         container.innerHTML = result.donors.map(donor => `
             <div class="nearby-item">
-                <h4>${donor.name}</h4>
-                <p><strong>Blood Group:</strong> ${donor.blood_group}</p>
-                <p><strong>Distance:</strong> ${donor.distance_km} km</p>
-                <p><strong>Location:</strong> ${donor.city || donor.location || 'Not specified'}</p>
+                <h4>${escapeHtml(donor.name)}</h4>
+                <p><strong>Blood Group:</strong> ${escapeHtml(donor.blood_group)}</p>
+                <p><strong>Distance:</strong> ${escapeHtml(donor.distance_km)} km</p>
+                <p><strong>Location:</strong> ${escapeHtml(donor.city || donor.location || donor.state || 'Not specified')}</p>
                 <p><strong>Contact:</strong> Hidden for privacy. Use request + verified call flow.</p>
+                <div class="action-row">
+                    <button
+                        type="button"
+                        class="btn-inline info"
+                        data-secure-connect-donor-id="${escapeHtml(donor.id)}"
+                        data-secure-connect-donor-name="${escapeHtml(donor.name || 'Nearby donor')}"
+                        data-secure-connect-blood-group="${escapeHtml(donor.blood_group || '')}"
+                        data-secure-connect-location="${escapeHtml(donor.city || donor.location || donor.state || 'your area')}">
+                        Request & Secure Connect
+                    </button>
+                </div>
             </div>
         `).join('');
     } catch (error) {
@@ -1562,6 +1698,17 @@ async function searchDonorsByLocation() {
                 <p><strong>Blood Group:</strong> ${escapeHtml(donor.blood_group)}</p>
                 <p><strong>Location:</strong> ${escapeHtml(donor.city || donor.location || donor.state || 'Not specified')}</p>
                 <p><strong>Contact:</strong> Hidden for privacy. Use dashboard emergency workflow.</p>
+                <div class="action-row">
+                    <button
+                        type="button"
+                        class="btn-inline info"
+                        data-secure-connect-donor-id="${escapeHtml(donor.id)}"
+                        data-secure-connect-donor-name="${escapeHtml(donor.name || 'Nearby donor')}"
+                        data-secure-connect-blood-group="${escapeHtml(donor.blood_group || '')}"
+                        data-secure-connect-location="${escapeHtml(donor.city || donor.location || donor.state || 'your area')}">
+                        Request & Secure Connect
+                    </button>
+                </div>
             </div>
         `).join('');
     } catch (error) {
@@ -2116,11 +2263,30 @@ async function handleBloodRequest(e) {
         const result = await response.json();
 
         if (result.success) {
+            const requestId = parsePositiveInt(result.request_id);
+            const secureTarget = pendingSecureDonorTarget;
+            let secureMessageShown = false;
+            if (requestId && secureTarget?.donorId) {
+                const secureConnectResult = await generateCallLinkForRequest(requestId, {
+                    notifyUserId: secureTarget.donorId,
+                    suppressSuccessToast: true
+                });
+                if (secureConnectResult.success) {
+                    secureMessageShown = true;
+                    showMessage(
+                        `Blood request submitted and secure call link shared with ${secureTarget.donorName}.`,
+                        'success'
+                    );
+                }
+            }
+            pendingSecureDonorTarget = null;
             const alertSuffix = result.alerts_sent ? ` (${result.alerts_sent} donors notified)` : '';
             const verificationText = result.verification_required
                 ? ' Request queued for authority verification.'
                 : '';
-            showMessage(`Blood request created successfully${alertSuffix}.${verificationText}`.trim(), 'success');
+            if (!secureMessageShown) {
+                showMessage(`Blood request created successfully${alertSuffix}.${verificationText}`.trim(), 'success');
+            }
             closeModal('requestModal');
             e.target.reset();
             updateRequestVerificationHint();
@@ -2222,6 +2388,9 @@ function closeModal(modalId) {
     if (modal) {
         modal.style.display = 'none';
         document.body.style.overflow = 'auto';
+        if (modalId === 'requestModal') {
+            pendingSecureDonorTarget = null;
+        }
     }
 }
 

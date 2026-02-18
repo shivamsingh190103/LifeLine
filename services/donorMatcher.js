@@ -57,7 +57,13 @@ const findNearbyDonors = async ({
       );
 
       return {
-        ...donor,
+        id: donor.id,
+        name: donor.name,
+        blood_group: donor.blood_group,
+        location: donor.location,
+        city: donor.city,
+        state: donor.state,
+        last_donation_date: donor.last_donation_date,
         distance_km: Number.parseFloat(distanceKm.toFixed(2))
       };
     })

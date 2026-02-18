@@ -92,6 +92,20 @@ const hasRequestVerificationColumns = async () => {
   return requestVerificationColumnsState.available;
 };
 
+const getRequestSelectProjection = useVerificationColumns => {
+  const verificationProjection = useVerificationColumns
+    ? `br.verification_required, br.verification_status, br.requisition_image_url,
+       br.verified_by, br.verified_at, br.verification_notes, br.call_room_url, br.call_room_created_at`
+    : `FALSE AS verification_required, 'Not Required' AS verification_status, NULL::TEXT AS requisition_image_url,
+       NULL::BIGINT AS verified_by, NULL::TIMESTAMPTZ AS verified_at, NULL::TEXT AS verification_notes,
+       NULL::TEXT AS call_room_url, NULL::TIMESTAMPTZ AS call_room_created_at`;
+
+  return `br.id, br.requester_id, br.patient_name, br.blood_group, br.units_required, br.hospital_name,
+          br.hospital_address, br.urgency_level, br.reason, br.required_date, br.status,
+          ${verificationProjection},
+          br.created_at, br.updated_at`;
+};
+
 // Create a new blood request
 router.post('/create', async (req, res) => {
   try {
@@ -324,7 +338,8 @@ router.get('/pending-verification', async (req, res) => {
     }
 
     const [requests] = await pool.execute(
-      `SELECT br.*, u.name AS requester_name, u.phone AS requester_phone, u.email AS requester_email
+      `SELECT ${getRequestSelectProjection(true)},
+              u.name AS requester_name
        FROM blood_requests br
        LEFT JOIN users u ON br.requester_id = u.id
        WHERE br.verification_required = TRUE
@@ -524,6 +539,16 @@ router.post('/:id/call-link', async (req, res) => {
       });
     }
 
+    const notifyUserIdRaw = req.body ? req.body.notify_user_id : null;
+    const hasNotifyUserId = notifyUserIdRaw !== undefined && notifyUserIdRaw !== null && notifyUserIdRaw !== '';
+    const notifyUserId = hasNotifyUserId ? parsePositiveInt(notifyUserIdRaw) : null;
+    if (hasNotifyUserId && !notifyUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'notify_user_id must be a valid positive integer'
+      });
+    }
+
     const actor = await resolveActorUser(req, { required: true });
     if (actor.message) {
       return res.status(actor.status).json({
@@ -541,7 +566,7 @@ router.post('/:id/call-link', async (req, res) => {
     }
 
     const [requests] = await pool.execute(
-      'SELECT id, requester_id FROM blood_requests WHERE id = ? LIMIT 1',
+      'SELECT id, requester_id, patient_name, blood_group FROM blood_requests WHERE id = ? LIMIT 1',
       [requestId]
     );
 
@@ -553,6 +578,14 @@ router.post('/:id/call-link', async (req, res) => {
     }
 
     const bloodRequest = requests[0];
+    const actorUserId = parsePositiveInt(actor.user.id);
+    const requestRequesterId = parsePositiveInt(bloodRequest.requester_id);
+    const isRequesterParticipant = (
+      Boolean(actorUserId) &&
+      Boolean(requestRequesterId) &&
+      actorUserId === requestRequesterId
+    ) || String(actor.user.id) === String(bloodRequest.requester_id);
+
     const [donationMatches] = await pool.execute(
       `SELECT id
        FROM blood_donations
@@ -562,7 +595,7 @@ router.post('/:id/call-link', async (req, res) => {
       [requestId, actor.user.id]
     );
 
-    const isParticipant = actor.user.id === bloodRequest.requester_id || donationMatches.length > 0 || isVerifiedAuthority(actor.user);
+    const isParticipant = isRequesterParticipant || donationMatches.length > 0 || isVerifiedAuthority(actor.user);
     if (!isParticipant) {
       return res.status(403).json({
         success: false,
@@ -580,11 +613,100 @@ router.post('/:id/call-link', async (req, res) => {
       [callUrl, requestId]
     );
 
+    let notificationsSent = 0;
+    if (notifyUserId && notifyUserId !== actor.user.id) {
+      const [targetUsers] = await pool.execute(
+        `SELECT id, name, is_donor, is_active
+         FROM users
+         WHERE id = ?
+         LIMIT 1`,
+        [notifyUserId]
+      );
+
+      if (targetUsers.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Target donor account not found'
+        });
+      }
+
+      const targetUser = targetUsers[0];
+      if (targetUser.is_active === false) {
+        return res.status(403).json({
+          success: false,
+          message: 'Target donor account is inactive'
+        });
+      }
+
+      const actorIsRequester = isRequesterParticipant;
+      if (actorIsRequester && targetUser.is_donor !== true && !isVerifiedAuthority(actor.user)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Target user is not an active donor account'
+        });
+      }
+
+      const requesterName = actor.user.name || 'LifeLine user';
+      const requestLabel = bloodRequest.patient_name || `Request #${requestId}`;
+      const donorMetadata = JSON.stringify({
+        request_id: requestId,
+        call_url: callUrl,
+        requested_blood_group: bloodRequest.blood_group || null,
+        initiated_by_user_id: actor.user.id
+      });
+      const requesterMetadata = JSON.stringify({
+        request_id: requestId,
+        call_url: callUrl,
+        shared_with_user_id: targetUser.id
+      });
+      const notificationInsert = `INSERT INTO user_notifications (user_id, title, message, type, metadata)
+                                  VALUES (?, ?, ?, 'info', ?::jsonb)`;
+      const hasMissingNotificationTableError = error => (
+        error && (error.code === '42P01' || error.code === 'ER_NO_SUCH_TABLE')
+      );
+
+      try {
+        await pool.execute(
+          notificationInsert,
+          [
+            targetUser.id,
+            `Secure call request for ${requestLabel}`,
+            `${requesterName} shared a private call link for request #${requestId}. Open your dashboard to join.`,
+            donorMetadata
+          ]
+        );
+        notificationsSent += 1;
+      } catch (notificationError) {
+        if (!hasMissingNotificationTableError(notificationError)) {
+          throw notificationError;
+        }
+      }
+
+      try {
+        await pool.execute(
+          notificationInsert,
+          [
+            actor.user.id,
+            `Secure call link shared with ${targetUser.name || 'donor'}`,
+            `Private call room created for request #${requestId}. Share only inside LifeLine.`,
+            requesterMetadata
+          ]
+        );
+        notificationsSent += 1;
+      } catch (notificationError) {
+        if (!hasMissingNotificationTableError(notificationError)) {
+          throw notificationError;
+        }
+      }
+    }
+
     return res.json({
       success: true,
       message: 'Call link generated successfully',
       request_id: requestId,
-      call_url: callUrl
+      call_url: callUrl,
+      notifications_sent: notificationsSent,
+      notified_user_id: notifyUserId || null
     });
   } catch (error) {
     console.error('Generate call link error:', error);
@@ -598,8 +720,10 @@ router.post('/:id/call-link', async (req, res) => {
 // Get all blood requests
 router.get('/all', async (req, res) => {
   try {
+    const useVerificationColumns = await hasRequestVerificationColumns();
     const [requests] = await pool.execute(
-      `SELECT br.*, u.name as requester_name, u.email as requester_email 
+      `SELECT ${getRequestSelectProjection(useVerificationColumns)},
+              u.name as requester_name
        FROM blood_requests br 
        LEFT JOIN users u ON br.requester_id = u.id 
        ORDER BY br.created_at DESC`
@@ -632,7 +756,8 @@ router.get('/by-blood-group/:bloodGroup', async (req, res) => {
 
     const useVerificationColumns = await hasRequestVerificationColumns();
     const [requests] = await pool.execute(
-      `SELECT br.*, u.name as requester_name, u.email as requester_email 
+      `SELECT ${getRequestSelectProjection(useVerificationColumns)},
+              u.name as requester_name
        FROM blood_requests br 
        LEFT JOIN users u ON br.requester_id = u.id 
        WHERE br.blood_group = ? AND br.status = 'Pending'
@@ -665,7 +790,8 @@ router.get('/by-location', async (req, res) => {
 
     const useVerificationColumns = await hasRequestVerificationColumns();
 
-    let query = `SELECT br.*, u.name as requester_name, u.email as requester_email 
+    let query = `SELECT ${getRequestSelectProjection(useVerificationColumns)},
+                        u.name as requester_name
                  FROM blood_requests br 
                  LEFT JOIN users u ON br.requester_id = u.id 
                  WHERE br.status = 'Pending'`;
@@ -708,7 +834,8 @@ router.get('/urgent/all', async (req, res) => {
   try {
     const useVerificationColumns = await hasRequestVerificationColumns();
     const [requests] = await pool.execute(
-      `SELECT br.*, u.name as requester_name, u.email as requester_email 
+      `SELECT ${getRequestSelectProjection(useVerificationColumns)},
+              u.name as requester_name
        FROM blood_requests br 
        LEFT JOIN users u ON br.requester_id = u.id 
        WHERE br.urgency_level IN ('High', 'Emergency')
@@ -744,8 +871,10 @@ router.get('/:id', async (req, res) => {
       });
     }
 
+    const useVerificationColumns = await hasRequestVerificationColumns();
     const [requests] = await pool.execute(
-      `SELECT br.*, u.name as requester_name, u.email as requester_email, u.phone as requester_phone 
+      `SELECT ${getRequestSelectProjection(useVerificationColumns)},
+              u.name as requester_name
        FROM blood_requests br 
        LEFT JOIN users u ON br.requester_id = u.id 
        WHERE br.id = ?`,
